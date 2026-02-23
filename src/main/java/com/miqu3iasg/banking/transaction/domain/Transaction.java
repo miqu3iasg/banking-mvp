@@ -78,59 +78,6 @@ public class Transaction extends AuditableEntity {
 		return create(accountId, null, TransactionType.CREDIT, amount, description, idempotencyKey, null);
 	}
 
-	public static Transaction transfer (
-		UUID fromAccountId,
-		UUID toAccountId,
-		Money amount,
-		String description,
-		String idempotencyKey
-	) {
-		requireAccountId(fromAccountId);
-
-		if (toAccountId == null)
-			throw new IllegalArgumentException("toAccountId is required for a transfer");
-
-		if (fromAccountId.equals(toAccountId))
-			throw new IllegalArgumentException("Cannot transfer to the same account");
-
-		requirePositiveAmount(amount);
-		requireIdempotencyKey(idempotencyKey);
-
-		return create(fromAccountId, toAccountId, TransactionType.TRANSFER, amount, description, idempotencyKey, null);
-	}
-
-	public static Transaction pix (
-		UUID accountId,
-		Money amount,
-		String description,
-		String idempotencyKey,
-		String pixTxid
-	) {
-		requireAccountId(accountId);
-		requirePositiveAmount(amount);
-		requireIdempotencyKey(idempotencyKey);
-		if (pixTxid == null || pixTxid.isBlank())
-			throw new IllegalArgumentException("pixTxid is required for a PIX transaction");
-		return create(accountId, null, TransactionType.PIX, amount, description, idempotencyKey, pixTxid);
-	}
-
-	public static Transaction boleto (
-		UUID accountId,
-		Money amount,
-		String description,
-		String idempotencyKey,
-		String chargeId
-	) {
-		requireAccountId(accountId);
-		requirePositiveAmount(amount);
-		requireIdempotencyKey(idempotencyKey);
-
-		if (chargeId == null || chargeId.isBlank())
-			throw new IllegalArgumentException("chargeId is required for a boleto transaction");
-
-		return create(accountId, null, TransactionType.BOLETO, amount, description, idempotencyKey, chargeId);
-	}
-
 	public void fail () {
 		if (this.status != TransactionStatus.PENDING) {
 			throw new IllegalStateException(
@@ -188,7 +135,7 @@ public class Transaction extends AuditableEntity {
 	}
 
 	private static void requirePositiveAmount (Money amount) {
-		if (amount == null || !amount.isGreaterThan(Money.zero())) {
+		if (amount == null || !amount.isGreaterThan(Money.zero(amount.currency()))) {
 			throw new IllegalArgumentException("Transaction amount must be positive");
 		}
 	}

@@ -63,6 +63,8 @@ public class TransferService {
 
 		accountRepository.saveAll(List.of(accounts.origin(), accounts.destination()));
 
+		// TODO: In a real-world scenario, we might want to handle the possibility of one transaction succeeding and the other failing, ensuring proper compensation or retry mechanisms.
+		// TODO: Create a transfer method in Transaction entity to encapsulate the creation of both debit and credit transactions, ensuring they are linked by a common reference ID for easier tracking and reconciliation.
 		List<Transaction> transactions = transactionRepository.saveAll(List.of(
 			Transaction.debit(
 				accounts.origin().getId(),
