@@ -1,0 +1,16 @@
+package com.miqu3iasg.banking.account.service;
+
+import jakarta.persistence.OptimisticLockException;
+import org.springframework.dao.TransientDataAccessException;
+
+public class TransientExceptionClassifier {
+	private TransientExceptionClassifier () { }
+
+	public static boolean isRetryable(Throwable t) {
+		return t instanceof OptimisticLockException || t instanceof TransientDataAccessException; // Add more add needed
+	}
+
+	public static boolean isNonRetryable(Throwable t) {
+		return !isRetryable(t);
+	}
+}

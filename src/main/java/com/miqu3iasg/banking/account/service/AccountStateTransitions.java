@@ -11,21 +11,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
-/**
- * Package-private collaborator that hosts {@code @Transactional} account mutations on
- * behalf of {@link AccountService}, avoiding the self-invocation AOP proxy pitfall.
- *
- * @see AccountService
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
-class AccountTransactionalOperations {
+public class AccountTransactionalOperations {
 
 	private final AccountRepository accountRepository;
 
 	@Transactional
-	Account executeStatusAction (UUID accountId, AccountAction action) {
+	Account execute (UUID accountId, AccountAction action) {
 		Account account = accountRepository.findById(accountId)
 			.orElseThrow(() -> new AccountNotFoundException(accountId));
 
