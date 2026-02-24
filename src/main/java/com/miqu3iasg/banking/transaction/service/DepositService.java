@@ -5,7 +5,6 @@ import com.miqu3iasg.banking.account.domain.Account;
 import com.miqu3iasg.banking.account.repository.AccountRepository;
 import com.miqu3iasg.banking.shared.domain.Money;
 import com.miqu3iasg.banking.shared.exception.AccountNotFoundException;
-import com.miqu3iasg.banking.shared.exception.InvalidCurrencyException;
 import com.miqu3iasg.banking.shared.idempotency.IdempotencyService;
 import com.miqu3iasg.banking.transaction.api.dto.DepositRequest;
 import com.miqu3iasg.banking.transaction.domain.Transaction;
@@ -18,8 +17,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-
-import java.util.Currency;
 
 @Slf4j
 @Service
@@ -38,7 +35,7 @@ public class DepositService {
 	}
 
 	@Transactional(rollbackFor = Exception.class)
-	protected TransactionResponse executeDeposit (String idempotencyKey, DepositRequest request) {
+	private TransactionResponse executeDeposit (String idempotencyKey, DepositRequest request) {
 		return idempotencyService
 			.findCachedResponse(idempotencyKey, TransactionResponse.class)
 			.map(cached -> {

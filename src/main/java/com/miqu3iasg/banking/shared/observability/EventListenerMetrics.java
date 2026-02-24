@@ -1,4 +1,4 @@
-package com.miqu3iasg.banking.account.service;
+package com.miqu3iasg.banking.shared.observability;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;

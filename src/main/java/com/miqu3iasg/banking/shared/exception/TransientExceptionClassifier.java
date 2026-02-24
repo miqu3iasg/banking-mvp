@@ -1,4 +1,4 @@
-package com.miqu3iasg.banking.account.service;
+package com.miqu3iasg.banking.shared.exception;
 
 import jakarta.persistence.OptimisticLockException;
 import org.springframework.dao.TransientDataAccessException;

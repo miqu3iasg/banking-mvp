@@ -7,6 +7,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
 import java.util.UUID;
 
 @Getter
@@ -51,6 +52,43 @@ public class Transaction extends AuditableEntity {
 
 	@Column(name = "reference_id")
 	private String referenceId;
+
+	public static List<Transaction> transfer (
+		UUID originAccountId,
+		UUID destinationAccountId,
+		Money amount,
+		String description,
+		String idempotencyKey
+	) {
+		requireAccountId(originAccountId);
+		requireAccountId(destinationAccountId);
+		requirePositiveAmount(amount);
+		requireIdempotencyKey(idempotencyKey);
+
+		String transferReferenceId = UUID.randomUUID().toString();
+
+		Transaction debit = create(
+			originAccountId,
+			destinationAccountId,
+			TransactionType.TRANSFER_DEBIT,
+			amount,
+			description,
+			idempotencyKey,
+			transferReferenceId
+		);
+
+	Transaction credit = create(
+			destinationAccountId,
+			originAccountId,
+			TransactionType.TRANSFER_CREDIT,
+			amount,
+			description,
+			idempotencyKey,
+			transferReferenceId
+		);
+
+		return List.of(debit, credit);
+	}
 
 	public static Transaction debit (
 		UUID accountId,

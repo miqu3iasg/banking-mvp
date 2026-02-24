@@ -3,7 +3,7 @@ package com.miqu3iasg.banking.account.domain;
 import com.miqu3iasg.banking.shared.domain.AuditableEntity;
 import com.miqu3iasg.banking.shared.domain.Money;
 import com.miqu3iasg.banking.shared.exception.AccountBlockedException;
-import com.miqu3iasg.banking.shared.exception.AccountFaultCode;
+import com.miqu3iasg.banking.shared.exception.code.AccountFaultCode;
 import com.miqu3iasg.banking.shared.exception.BusinessException;
 import com.miqu3iasg.banking.shared.exception.InsufficientFundsException;
 import jakarta.persistence.*;

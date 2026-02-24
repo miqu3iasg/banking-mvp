@@ -1,5 +1,7 @@
 package com.miqu3iasg.banking.shared.exception;
 
+import com.miqu3iasg.banking.shared.exception.code.AccountFaultCode;
+
 import java.util.Map;
 import java.util.UUID;
 

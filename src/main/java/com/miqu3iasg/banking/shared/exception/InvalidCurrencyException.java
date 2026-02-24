@@ -1,5 +1,7 @@
 package com.miqu3iasg.banking.shared.exception;
 
+import com.miqu3iasg.banking.shared.exception.code.TransactionFaultCode;
+
 import java.util.Map;
 
 public class InvalidCurrencyException extends BusinessException {

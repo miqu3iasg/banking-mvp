@@ -1,12 +1,12 @@
 package com.miqu3iasg.banking.shared.exception;
 
+import com.miqu3iasg.banking.shared.exception.code.FaultCode;
 import lombok.Getter;
 
 import java.time.Instant;
 import java.util.Collections;
 import java.util.Map;
 
-// TODO: Make all exceptions use the same structure and include a fault code, timestamp, and context for better error handling and debugging.
 @Getter
 public class BusinessException extends RuntimeException {
 

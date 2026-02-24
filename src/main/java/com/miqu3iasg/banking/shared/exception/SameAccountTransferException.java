@@ -1,5 +1,6 @@
 package com.miqu3iasg.banking.shared.exception;
 
+import com.miqu3iasg.banking.shared.exception.code.TransactionFaultCode;
 import lombok.Getter;
 
 import java.util.Map;

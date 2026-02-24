@@ -1,4 +1,4 @@
-package com.miqu3iasg.banking.shared.exception;
+package com.miqu3iasg.banking.shared.exception.code;
 
 /**
  * Fault codes for the Customer bounded context.

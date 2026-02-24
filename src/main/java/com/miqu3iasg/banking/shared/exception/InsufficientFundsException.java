@@ -1,6 +1,7 @@
 package com.miqu3iasg.banking.shared.exception;
 
 import com.miqu3iasg.banking.shared.domain.Money;
+import com.miqu3iasg.banking.shared.exception.code.AccountFaultCode;
 import lombok.Getter;
 
 import java.util.Map;

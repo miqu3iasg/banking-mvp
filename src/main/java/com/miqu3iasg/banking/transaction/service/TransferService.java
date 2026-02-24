@@ -43,11 +43,12 @@ public class TransferService {
 	}
 
 	@Transactional(rollbackFor = Exception.class)
-	protected TransactionResponse executeTransfer (String idempotencyKey, TransferRequest request) {
+	private TransactionResponse executeTransfer (String idempotencyKey, TransferRequest request) {
 		return idempotencyService
 			.findCachedResponse(idempotencyKey, TransactionResponse.class)
 			.map(cached -> {
 				log.debug("Transfer idempotency HIT: key=[{}]", idempotencyKey);
+
 				return cached;
 			})
 			.orElseGet(() -> performTransfer(idempotencyKey, request));
@@ -63,23 +64,15 @@ public class TransferService {
 
 		accountRepository.saveAll(List.of(accounts.origin(), accounts.destination()));
 
-		// TODO: In a real-world scenario, we might want to handle the possibility of one transaction succeeding and the other failing, ensuring proper compensation or retry mechanisms.
-		// TODO: Create a transfer method in Transaction entity to encapsulate the creation of both debit and credit transactions, ensuring they are linked by a common reference ID for easier tracking and reconciliation.
-		List<Transaction> transactions = transactionRepository.saveAll(List.of(
-			Transaction.debit(
+		List<Transaction> transactions = transactionRepository.saveAll(
+			Transaction.transfer(
 				accounts.origin().getId(),
-				amount,
-				request.description(),
-				idempotencyKey
-			),
-
-			Transaction.credit(
 				accounts.destination().getId(),
 				amount,
 				request.description(),
 				idempotencyKey
 			)
-		));
+		);
 
 		Transaction debitTransaction = transactions.get(0);
 		Transaction creditTransaction = transactions.get(1);
@@ -87,10 +80,12 @@ public class TransferService {
 		schedulePostCommitEvents(debitTransaction, creditTransaction, accounts);
 
 		log.info(
-			"Transfer completed: origin={} destination={} amount={} debitTx={} creditTx={}",
+			"Transfer completed: origin={} destination={} amount={} referenceId={} debitTx={} creditTx={}",
 			accounts.origin().getId(),
 			accounts.destination().getId(),
-			amount, debitTransaction.getId(),
+			amount,
+			debitTransaction.getReferenceId(),
+			debitTransaction.getId(),
 			creditTransaction.getId()
 		);
 
@@ -119,7 +114,7 @@ public class TransferService {
 	}
 
 	private Account loadLockedAccount (UUID id) {
-		return accountRepository.findByIdWithLock(id)
+		return accountRepository.findByIdWithPessimisticLock(id)
 			.orElseThrow(() -> new AccountNotFoundException(id));
 	}
 
