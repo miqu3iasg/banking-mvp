@@ -1,8 +1,6 @@
 package com.miqu3iasg.banking.account.domain;
 
-
 public enum AccountAction {
-
 	BLOCK_ACCOUNT_USAGE {
 		@Override
 		public void apply (Account account) {

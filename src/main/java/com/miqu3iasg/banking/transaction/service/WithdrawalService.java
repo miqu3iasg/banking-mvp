@@ -94,11 +94,9 @@ public class WithdrawalService {
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
 			@Override
 			public void afterCommit () {
-				eventPublisher.publishEvent(new TransactionCompletedEvent(
-					transaction.getId(),
-					account.getId(),
-					TransactionType.DEBIT
-				));
+				eventPublisher.publishEvent(
+					TransactionCompletedEvent.ofSingleAccount(transaction)
+				);
 			}
 		});
 	}

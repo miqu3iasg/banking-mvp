@@ -138,17 +138,19 @@ public class TransferService {
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
 			@Override
 			public void afterCommit () {
-				eventPublisher.publishEvent(new TransactionCompletedEvent(
-					debitTransaction.getId(),
-					accounts.origin().getId(),
-					TransactionType.TRANSFER_DEBIT
-				));
+				eventPublisher.publishEvent(
+					TransactionCompletedEvent.ofTransferLeg(
+						debitTransaction,
+						accounts.destination().getId()
+					)
+				);
 
-				eventPublisher.publishEvent(new TransactionCompletedEvent(
-					creditTransaction.getId(),
-					accounts.destination().getId(),
-					TransactionType.TRANSFER_CREDIT
-				));
+				eventPublisher.publishEvent(
+					TransactionCompletedEvent.ofTransferLeg(
+						creditTransaction,
+						accounts.origin().getId()
+					)
+				);
 			}
 		});
 	}

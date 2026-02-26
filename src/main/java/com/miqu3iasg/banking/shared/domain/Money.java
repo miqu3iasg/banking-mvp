@@ -1,5 +1,6 @@
 package com.miqu3iasg.banking.shared.domain;
 
+import com.miqu3iasg.banking.account.domain.AccountType;
 import com.miqu3iasg.banking.shared.exception.CurrencyMismatchException;
 import com.miqu3iasg.banking.shared.exception.InvalidCurrencyException;
 
@@ -93,6 +94,16 @@ public record Money(BigDecimal amount, Currency currency) {
 
 	public boolean isPositive () {
 		return this.amount.signum() > 0;
+	}
+
+	public boolean isNegative () {
+		return this.amount.signum() < 0;
+	}
+
+	public static Currency defaultCurrencyForAccountType (AccountType accountType) {
+		return switch (accountType) {
+			case CHECKING, SAVINGS -> BRL;
+		};
 	}
 
 	/**

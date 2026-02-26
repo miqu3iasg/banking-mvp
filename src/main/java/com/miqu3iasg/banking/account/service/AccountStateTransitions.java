@@ -4,8 +4,6 @@ import com.miqu3iasg.banking.account.domain.Account;
 import com.miqu3iasg.banking.account.domain.AccountAction;
 import com.miqu3iasg.banking.account.domain.AccountStatus;
 import com.miqu3iasg.banking.account.repository.AccountRepository;
-import com.miqu3iasg.banking.account.service.AccountMetrics;
-import com.miqu3iasg.banking.account.service.AccountService;
 import com.miqu3iasg.banking.shared.exception.AccountNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,9 +20,10 @@ class AccountStateTransitions {
 	private final AccountRepository accountRepository;
 	private final AccountMetrics metrics;
 
-	@Transactional(propagation = Propagation.REQUIRED)
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
 	public Account execute (UUID accountId, AccountAction action) {
 		return metrics.timeTransitionDbWrite(action.name(), () -> {
+
 			Account account = accountRepository.findByIdWithOptimisticLock(accountId)
 				.orElseThrow(() -> new AccountNotFoundException(accountId));
 
@@ -44,8 +43,10 @@ class AccountStateTransitions {
 
 			log.info(
 				"Status transition persisted [accountNumber={}, action={}, previousStatus={}, newStatus={}, version={}]",
-				saved.getAccountNumber(), action,
-				previousStatus, saved.getStatus(),
+				saved.getAccountNumber(),
+				action,
+				previousStatus,
+				saved.getStatus(),
 				saved.getVersion()
 			);
 

@@ -12,6 +12,8 @@ import com.miqu3iasg.banking.shared.exception.code.CustomerFaultCode;
 import jakarta.persistence.OptimisticLockException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.annotations.NotNull;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.dao.TransientDataAccessException;
 import org.springframework.retry.RetryCallback;
@@ -21,12 +23,12 @@ import org.springframework.retry.backoff.ExponentialRandomBackOffPolicy;
 import org.springframework.retry.policy.SimpleRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Map;
 import java.util.UUID;
 
-// TODO: publish domain events on account status changes (e.g. for notification or audit purposes)
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -53,7 +55,7 @@ public class AccountService {
 	private final AccountMetrics metrics;
 	private final DocumentValidator documentValidator;
 	private final AccountStateTransitions accountStateTransitions;
-	private final AccountNumberGenerator accountNumberGenerator; // TODO 4
+	private final AccountNumberGenerator accountNumberGenerator;
 
 	private RetryTemplate buildAccountRetryTemplate () {
 		SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy(
@@ -116,38 +118,47 @@ public class AccountService {
 		};
 	}
 
-	@Transactional
+	@Transactional(isolation = Isolation.READ_COMMITTED)
 	public AccountResponse openAccount (CreateAccountRequest request) {
-		validateCreateAccountRequest(request);
-
 		return metrics.timeAccountOpening(request.type(), () -> {
+			documentValidator.validate(request.documentNumber());
+
 			log.info("Opening {} account for document ...{}", request.type(), request.documentNumber());
 
-			if (accountRepository.existsByDocumentNumber(request.documentNumber())) {
-				throw new AccountAlreadyExistsException(request.documentNumber());
-			}
+			guardAgainstDuplicate(request.documentNumber());
 
-			String accountNumber = accountNumberGenerator.generate();
+			Account saved = provisionAccount(request);
 
-			Account account = Account.open(
-				accountNumber,
-				request.type(),
-				request.holderName(),
-				request.documentNumber(),
-				request.email()
-			);
-
-			Account saved = accountRepository.save(account);
-
-			log.info(
-				"Account opened [accountNumber={}, type={}, document=...{}]",
-				saved.getAccountNumber(),
-				saved.getType(),
-				request.documentNumber()
-			);
+			log.info("Account opened [accountNumber={}, type={}, document=...{}]",
+				saved.getAccountNumber(), saved.getType(), request.documentNumber());
 
 			return AccountResponse.from(saved);
 		});
+	}
+
+	private void guardAgainstDuplicate(final String documentNumber) {
+		if (accountRepository.existsByDocumentNumber(documentNumber)) {
+			log.warn("Account opening rejected — document already registered [document={}]", documentNumber);
+			throw new AccountAlreadyExistsException(documentNumber);
+		}
+	}
+
+	private Account provisionAccount (CreateAccountRequest request) {
+		Account account = Account.open(
+			accountNumberGenerator.generate(),
+			request.type(),
+			request.holderName(),
+			request.documentNumber(),
+			request.email()
+		);
+
+		try {
+			return accountRepository.save(account);
+		} catch (DataIntegrityViolationException ex) {
+			log.warn("Duplicate account detected at persistence layer [document=...{}]", request.documentNumber());
+
+			throw new AccountAlreadyExistsException(request.documentNumber());
+		}
 	}
 
 	@Transactional(readOnly = true)
@@ -202,34 +213,5 @@ public class AccountService {
 
 			return AccountResponse.from(account);
 		});
-	}
-
-	private void validateCreateAccountRequest (CreateAccountRequest request) {
-		requireNonBlank(request.holderName(), "holderName must not be blank", CustomerFaultCode.CUSTOMER_INVALID_INPUT);
-		requireNonBlank(request.email(), "email must not be blank", CustomerFaultCode.CUSTOMER_INVALID_EMAIL);
-
-		if (request.type() == null) {
-			throw new InvalidRequestException(
-				"accountType must not be null",
-				CustomerFaultCode.CUSTOMER_INVALID_INPUT
-			);
-		}
-
-		documentValidator.validate(request.documentNumber());
-
-		if (!isValidEmail(request.email())) {
-			throw new InvalidRequestException(CustomerFaultCode.CUSTOMER_INVALID_EMAIL);
-		}
-	}
-
-	private static boolean isValidEmail (String email) {
-		int atIndex = email.indexOf('@');
-		return atIndex > 0 && email.lastIndexOf('.') > atIndex;
-	}
-
-	private static void requireNonBlank (String value, String message, CustomerFaultCode faultCode) {
-		if (value == null || value.isBlank()) {
-			throw new InvalidRequestException(message, faultCode);
-		}
 	}
 }

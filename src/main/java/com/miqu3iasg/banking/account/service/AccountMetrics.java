@@ -70,10 +70,12 @@ public class AccountMetrics {
 	}
 
 	public <T> T timeStatusTransition (String action, AccountType accountType, Supplier<T> operation) {
+		String accountTypeTag = accountType != null ? accountType.name().toLowerCase() : "unknown";
+
 		Timer timer = Timer.builder(TRANSITION_DURATION)
 			.description("Time taken to apply a status transition end-to-end")
 			.tag(TAG_ACTION, action.toLowerCase())
-			.tag(TAG_ACCOUNT_TYPE, accountType.name().toLowerCase())
+			.tag(TAG_ACCOUNT_TYPE, accountTypeTag)
 			.publishPercentileHistogram()
 			.sla(Duration.ofMillis(200), Duration.ofMillis(500), Duration.ofSeconds(1))
 			.register(registry);

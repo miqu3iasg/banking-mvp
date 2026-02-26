@@ -3,6 +3,7 @@ package com.miqu3iasg.banking.account.domain;
 import com.miqu3iasg.banking.shared.domain.AuditableEntity;
 import com.miqu3iasg.banking.shared.domain.Money;
 import com.miqu3iasg.banking.shared.exception.AccountBlockedException;
+import com.miqu3iasg.banking.shared.exception.AccountClosedException;
 import com.miqu3iasg.banking.shared.exception.code.AccountFaultCode;
 import com.miqu3iasg.banking.shared.exception.BusinessException;
 import com.miqu3iasg.banking.shared.exception.InsufficientFundsException;
@@ -69,7 +70,7 @@ public class Account extends AuditableEntity {
 		account.documentNumber = documentNumber;
 		account.email = email;
 		account.status = AccountStatus.ACTIVE;
-		account.balance = Money.zero();
+		account.balance = Money.zero(Money.defaultCurrencyForAccountType(type));
 		return account;
 	}
 
@@ -87,9 +88,11 @@ public class Account extends AuditableEntity {
 	}
 
 	public void block () {
+		requiredNotBlocked();
 		requireNotClosed();
 		this.status = AccountStatus.BLOCKED;
 	}
+
 
 	public void unblock () {
 		requireBlocked();
@@ -122,10 +125,7 @@ public class Account extends AuditableEntity {
 
 	private void requireNotClosed () {
 		if (isClosed()) {
-			throw BusinessException.of(
-				AccountFaultCode.ACCOUNT_CLOSED,
-				Map.of("accountNumber", accountNumber, "currentStatus", status)
-			);
+			throw new AccountClosedException(accountNumber, status.name());
 		}
 	}
 
@@ -138,14 +138,20 @@ public class Account extends AuditableEntity {
 		}
 	}
 
+	private void requiredNotBlocked () {
+		if (isBlocked()) {
+			throw new AccountBlockedException(accountNumber, status.name());
+		}
+	}
+
 	private void requireSufficientFunds (Money required) {
-		if (!this.balance.isGreaterThanOrEqual(required)) {
+		if (!this.balance.isGreaterThanOrEqualTo(required)) {
 			throw new InsufficientFundsException(getId().toString(), required, balance);
 		}
 	}
 
 	private void requireZeroBalance () {
-		if (this.balance.isGreaterThan(Money.zero())) {
+		if (this.balance.isGreaterThan(Money.zero(balance.currency()))) {
 			throw BusinessException.of(
 				AccountFaultCode.ACCOUNT_HAS_POSITIVE_BALANCE,
 				Map.of("accountNumber", accountNumber, "balance", balance.amount())
@@ -154,7 +160,7 @@ public class Account extends AuditableEntity {
 	}
 
 	private static void requirePositiveAmount (Money amount) {
-		if (amount == null || !amount.isGreaterThan(Money.zero())) {
+		if (amount == null || !amount.isGreaterThan(Money.zero(amount.currency()))) {
 			throw new IllegalArgumentException("Transaction amount must be positive");
 		}
 	}
