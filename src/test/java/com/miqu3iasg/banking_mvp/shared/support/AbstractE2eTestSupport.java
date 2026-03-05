@@ -1,4 +1,4 @@
-package com.miqu3iasg.banking_mvp.transaction.service;
+package com.miqu3iasg.banking_mvp.shared.support;
 
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -40,7 +40,7 @@ import java.util.UUID;
 	webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT
 )
 @ActiveProfiles("e2e-test")
-public abstract class AbstractE2ETestSupport {
+public abstract class AbstractE2eTestSupport {
 	protected static final String PIX_KEY = System.getenv().get("EFI_PIX_KEY");
 	protected static final String CPF_1 = "52998224725";
 	protected static final String CPF_2 = "111.444.777-35";

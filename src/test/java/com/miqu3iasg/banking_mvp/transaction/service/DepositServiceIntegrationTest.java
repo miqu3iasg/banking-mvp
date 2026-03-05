@@ -7,6 +7,7 @@ import com.miqu3iasg.banking.shared.domain.Money;
 import com.miqu3iasg.banking.transaction.api.dto.DepositRequest;
 import com.miqu3iasg.banking.transaction.domain.TransactionType;
 import com.miqu3iasg.banking.transaction.service.DepositService;
+import com.miqu3iasg.banking_mvp.shared.support.AbstractIntegrationTestSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;

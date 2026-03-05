@@ -1,4 +1,4 @@
-package com.miqu3iasg.banking_mvp.transaction.service;
+package com.miqu3iasg.banking_mvp.shared.support;
 
 import com.miqu3iasg.banking.BankingMvpApplication;
 import com.miqu3iasg.banking.account.api.dto.AccountResponse;

@@ -13,7 +13,7 @@ import com.miqu3iasg.banking.shared.exception.AccountNotFoundException;
 import com.miqu3iasg.banking.shared.exception.BusinessException;
 import com.miqu3iasg.banking.shared.exception.InvalidDocumentException;
 import com.miqu3iasg.banking.shared.exception.InvalidRequestException;
-import com.miqu3iasg.banking_mvp.transaction.service.AbstractIntegrationTestSupport;
+import com.miqu3iasg.banking_mvp.shared.support.AbstractIntegrationTestSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.RepeatedTest;

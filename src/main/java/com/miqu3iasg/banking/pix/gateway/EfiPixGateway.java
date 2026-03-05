@@ -125,8 +125,6 @@ public class EfiPixGateway implements PixGateway {
 		);
 	}
 
-	// TODO: create a method to register a new pix key
-
 	@Override
 	public Optional<PixChargeResponse> getCharge (String txid) {
 		log.debug("Calling Efí Bank GET /v2/cob/{}", txid);
@@ -144,7 +142,22 @@ public class EfiPixGateway implements PixGateway {
 					.retrieve()
 					.onStatus(
 						status -> status == HttpStatus.NOT_FOUND,
-						clientResponse -> Mono.error(new ProviderChargeNotFoundException(txid))
+						clientResponse -> clientResponse.releaseBody().then(Mono.empty())
+					)
+					.onStatus(
+						status -> status == HttpStatus.BAD_REQUEST,
+						clientResponse -> clientResponse
+							.bodyToMono(String.class)
+							.flatMap(errorBody ->
+								errorBody.contains("cobranca_nao_encontrada")
+									? Mono.empty()
+									: Mono.error(
+									new PixGatewayException(
+										"Efí Bank getCharge error %s: %s"
+											.formatted(clientResponse.statusCode(), errorBody)
+									)
+								)
+							)
 					)
 					.onStatus(HttpStatusCode::isError, clientResponse ->
 						clientResponse
@@ -212,7 +225,8 @@ public class EfiPixGateway implements PixGateway {
 									}
 
 									return Mono.error(new PixGatewayException(
-											"Efí Bank cancelCharge error %s: %s".formatted(clientResponse.statusCode(), errorBody)
+											"Efí Bank cancelCharge error %s: %s"
+												.formatted(clientResponse.statusCode(), errorBody)
 										)
 									);
 								})
