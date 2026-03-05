@@ -1,7 +1,5 @@
 package com.miqu3iasg.banking.shared.exception;
 
-import com.miqu3iasg.banking.shared.exception.code.FaultCode;
-
 import java.util.Collections;
 
 public class InvalidRequestException extends BusinessException {

@@ -1,6 +1,6 @@
 package com.miqu3iasg.banking.shared.exception;
 
-import com.miqu3iasg.banking.shared.exception.code.CustomerFaultCode;
+import com.miqu3iasg.banking.account.exception.CustomerFaultCode;
 
 import java.util.Collections;
 

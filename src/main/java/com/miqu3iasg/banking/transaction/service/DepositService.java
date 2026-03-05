@@ -65,7 +65,10 @@ public class DepositService {
 
 		schedulePostCommitEvent(saved, account);
 
-		log.info("Deposit completed: account={} amount={} transactionId={}", account.getId(), amount, saved.getId());
+		log.info("Deposit completed: account={} amount={} transactionId={}",
+			account.getId(),
+			amount,
+			saved.getId());
 
 		TransactionResponse response = TransactionResponse.from(saved);
 

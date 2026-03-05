@@ -5,7 +5,7 @@ import com.miqu3iasg.banking.account.domain.Account;
 import com.miqu3iasg.banking.account.repository.AccountRepository;
 import com.miqu3iasg.banking.shared.domain.Money;
 import com.miqu3iasg.banking.shared.exception.AccountNotFoundException;
-import com.miqu3iasg.banking.shared.exception.SameAccountTransferException;
+import com.miqu3iasg.banking.transaction.exception.SameAccountTransferException;
 import com.miqu3iasg.banking.shared.idempotency.IdempotencyService;
 import com.miqu3iasg.banking.transaction.api.dto.TransferRequest;
 import com.miqu3iasg.banking.transaction.domain.Transaction;
@@ -79,15 +79,13 @@ public class TransferService {
 
 		schedulePostCommitEvents(debitTransaction, creditTransaction, accounts);
 
-		log.info(
-			"Transfer completed: origin={} destination={} amount={} referenceId={} debitTx={} creditTx={}",
+		log.info("Transfer completed: origin={} destination={} amount={} referenceId={} debitTx={} creditTx={}",
 			accounts.origin().getId(),
 			accounts.destination().getId(),
 			amount,
 			debitTransaction.getReferenceId(),
 			debitTransaction.getId(),
-			creditTransaction.getId()
-		);
+			creditTransaction.getId());
 
 		TransactionResponse response = TransactionResponse.from(debitTransaction);
 

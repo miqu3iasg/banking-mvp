@@ -2,7 +2,7 @@ package com.miqu3iasg.banking.account.api.dto;
 
 import com.miqu3iasg.banking.account.domain.AccountType;
 import com.miqu3iasg.banking.shared.exception.InvalidRequestException;
-import com.miqu3iasg.banking.shared.exception.code.CustomerFaultCode;
+import com.miqu3iasg.banking.account.exception.CustomerFaultCode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;

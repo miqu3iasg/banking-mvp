@@ -1,6 +1,6 @@
 package com.miqu3iasg.banking.shared.exception;
 
-import com.miqu3iasg.banking.shared.exception.code.TransactionFaultCode;
+import com.miqu3iasg.banking.transaction.exception.TransactionFaultCode;
 
 import java.util.Map;
 

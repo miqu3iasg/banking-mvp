@@ -1,6 +1,5 @@
 package com.miqu3iasg.banking.shared.exception;
 
-import com.miqu3iasg.banking.shared.exception.code.FaultCode;
 import lombok.Getter;
 
 import java.time.Instant;

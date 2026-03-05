@@ -16,7 +16,7 @@ import java.util.UUID;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-class AccountStateTransitions {
+public class AccountStateTransitions {
 	private final AccountRepository accountRepository;
 	private final AccountMetrics metrics;
 
@@ -29,26 +29,22 @@ class AccountStateTransitions {
 
 			AccountStatus previousStatus = account.getStatus();
 
-			log.debug(
-				"Executing {} on account {} [currentStatus={}, version={}]",
+			log.debug("Executing {} on account {} [currentStatus={}, version={}]",
 				action,
 				account.getAccountNumber(),
 				previousStatus,
-				account.getVersion()
-			);
+				account.getVersion());
 
 			action.apply(account);
 
 			Account saved = accountRepository.save(account);
 
-			log.info(
-				"Status transition persisted [accountNumber={}, action={}, previousStatus={}, newStatus={}, version={}]",
+			log.info("Status transition persisted [accountNumber={}, action={}, previousStatus={}, newStatus={}, version={}]",
 				saved.getAccountNumber(),
 				action,
 				previousStatus,
 				saved.getStatus(),
-				saved.getVersion()
-			);
+				saved.getVersion());
 
 			return saved;
 		});

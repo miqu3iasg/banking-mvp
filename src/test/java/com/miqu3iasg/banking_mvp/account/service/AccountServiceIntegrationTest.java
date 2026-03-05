@@ -1,28 +1,27 @@
 package com.miqu3iasg.banking_mvp.account.service;
 
-import com.miqu3iasg.banking.BankingMvpApplication;
 import com.miqu3iasg.banking.account.api.dto.AccountResponse;
 import com.miqu3iasg.banking.account.api.dto.CreateAccountRequest;
 import com.miqu3iasg.banking.account.domain.Account;
 import com.miqu3iasg.banking.account.domain.AccountAction;
 import com.miqu3iasg.banking.account.domain.AccountStatus;
 import com.miqu3iasg.banking.account.domain.AccountType;
-import com.miqu3iasg.banking.account.repository.AccountRepository;
-import com.miqu3iasg.banking.account.service.AccountService;
-import com.miqu3iasg.banking.shared.exception.*;
-import org.junit.jupiter.api.*;
+import com.miqu3iasg.banking.account.exception.AccountAlreadyExistsException;
+import com.miqu3iasg.banking.account.exception.AccountBlockedException;
+import com.miqu3iasg.banking.account.exception.AccountClosedException;
+import com.miqu3iasg.banking.shared.exception.AccountNotFoundException;
+import com.miqu3iasg.banking.shared.exception.BusinessException;
+import com.miqu3iasg.banking.shared.exception.InvalidDocumentException;
+import com.miqu3iasg.banking.shared.exception.InvalidRequestException;
+import com.miqu3iasg.banking_mvp.transaction.service.AbstractIntegrationTestSupport;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.RepeatedTest;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -36,46 +35,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.ThrowableAssert.catchThrowable;
 
-@Testcontainers
-@SpringBootTest(classes = BankingMvpApplication.class)
-@DisplayName("AccountService — Integration")
-@ActiveProfiles("integration-test")
-class AccountServiceIntegrationTest {
+class AccountServiceIntegrationTest extends AbstractIntegrationTestSupport {
 
 	private static final int CONCURRENT_USERS = 50;
 	private static final int TIMEOUT_SECONDS = 30;
-
-	@Container
-	static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine")
-		.withDatabaseName("banking_test")
-		.withUsername("test")
-		.withPassword("test")
-		.withReuse(true);
-
-	@DynamicPropertySource
-	static void configureDataSource (DynamicPropertyRegistry registry) {
-		registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-		registry.add("spring.datasource.username", POSTGRES::getUsername);
-		registry.add("spring.datasource.password", POSTGRES::getPassword);
-		registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
-		registry.add("spring.jpa.hibernate.ddl-auto", () -> "create-drop");
-		registry.add("outbox.processor.enabled", () -> "false");
-	}
-
-	@Autowired
-	AccountService accountService;
-
-	@Autowired
-	AccountRepository accountRepository;
-
-	@BeforeEach
-	void cleanDatabase () {
-		accountRepository.deleteAll();
-	}
-
-	private static final String CPF_1 = "529.982.247-25";
-	private static final String CPF_2 = "111.444.777-35";
-	private static final String CPF_3 = "222.333.444-05";
 
 	@Nested
 	@DisplayName("Opening a new account")
@@ -398,8 +361,7 @@ class AccountServiceIntegrationTest {
 				case "active" -> openChecking(CPF_1).id();
 				case "blocked" -> openAndBlock(CPF_1).id();
 				case "closed" -> openAndClose(CPF_1).id();
-				default ->
-					throw new IllegalArgumentException("unknown setup: " + setup);
+				default -> throw new IllegalArgumentException("unknown setup: " + setup);
 			};
 
 			Throwable thrown = catchThrowable(() -> accountService.applyStatusAction(id, action));
@@ -607,62 +569,5 @@ class AccountServiceIntegrationTest {
 			assertThat(raw.getBalance().amount()).isZero();
 			assertThat(raw.getBalance().currency()).isNotNull();
 		}
-	}
-
-	private static CreateAccountRequest checking (String document) {
-		return new CreateAccountRequest(
-			"Jhon Doe",
-			document,
-			AccountType.CHECKING,
-			"holder@example.com"
-		);
-	}
-
-	private static CreateAccountRequest savings (String document) {
-		return new CreateAccountRequest(
-			"Jane Doe",
-			document,
-			AccountType.SAVINGS,
-			"savings@example.com"
-		);
-	}
-
-	private AccountResponse openChecking (String document) {
-		return accountService.openAccount(checking(document));
-	}
-
-	private AccountResponse openAndBlock (String document) {
-		AccountResponse account = openChecking(document);
-		return accountService.applyStatusAction(account.id(), AccountAction.BLOCK_ACCOUNT_USAGE);
-	}
-
-	private AccountResponse openAndClose (String document) {
-		AccountResponse account = openChecking(document);
-		return accountService.applyStatusAction(account.id(), AccountAction.CLOSE_ACCOUNT);
-	}
-
-	private String generateCpf (int seed) {
-		int base = (seed + 1) * 13;
-		int[] digits = new int[11];
-		for (int i = 8; i >= 0; i--) {
-			digits[i] = base % 10;
-			base /= 10;
-		}
-
-		int sum = 0;
-		for (int i = 0; i < 9; i++) sum += digits[i] * (10 - i);
-		int remainder = sum % 11;
-		digits[9] = remainder < 2 ? 0 : 11 - remainder;
-
-		sum = 0;
-		for (int i = 0; i < 10; i++) sum += digits[i] * (11 - i);
-		remainder = sum % 11;
-		digits[10] = remainder < 2 ? 0 : 11 - remainder;
-
-		return String.format("%d%d%d.%d%d%d.%d%d%d-%d%d",
-			digits[0], digits[1], digits[2],
-			digits[3], digits[4], digits[5],
-			digits[6], digits[7], digits[8],
-			digits[9], digits[10]);
 	}
 }

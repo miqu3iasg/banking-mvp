@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
@@ -46,7 +47,7 @@ public class OutboxProcessor {
 
 	@Transactional
 	@Scheduled(fixedDelayString = "${outbox.processor.interval-ms:5000}")
-	public void process () {
+	public void poolAndProcess () {
 		Instant retryBefore = Instant.now();
 
 		List<OutboxEvent> batch = outboxRepository.findPendingForProcessing(retryBefore, BATCH_SIZE);
@@ -57,11 +58,10 @@ public class OutboxProcessor {
 
 		log.debug("OutboxProcessor polling: found {} pending event(s)", batch.size());
 
-		batch.forEach(this::processOne);
+		batch.forEach(this::processEvent);
 	}
 
-	@Transactional
-	protected void processOne (OutboxEvent event) {
+	private void processEvent (OutboxEvent event) {
 		OutboxEventDispatcher dispatcher = dispatchers.get(event.getEventType());
 
 		if (dispatcher == null) {
@@ -73,7 +73,7 @@ public class OutboxProcessor {
 
 			event.markAttemptFailed();
 
-			outboxRepository.save(event);
+			commitDispatchOutcome(event);
 
 			return;
 		}
@@ -83,7 +83,7 @@ public class OutboxProcessor {
 
 			event.markProcessed();
 
-			outboxRepository.save(event);
+			commitDispatchOutcome(event);
 
 			log.debug(
 				"Outbox event processed: id={} eventType={} aggregateId={}",
@@ -95,7 +95,7 @@ public class OutboxProcessor {
 		} catch (Exception ex) {
 			event.markAttemptFailed();
 
-			outboxRepository.save(event);
+			commitDispatchOutcome(event);
 
 			if (event.isExhausted()) {
 				log.error(
@@ -122,6 +122,11 @@ public class OutboxProcessor {
 				);
 			}
 		}
+	}
+
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	private void commitDispatchOutcome (OutboxEvent event) {
+		outboxRepository.save(event);
 	}
 
 	/**

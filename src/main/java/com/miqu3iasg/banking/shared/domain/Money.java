@@ -31,6 +31,9 @@ public record Money(BigDecimal amount, Currency currency) {
 		return new Money(amount, parseCurrency(currencyCode));
 	}
 
+	public static Money of (BigDecimal amount) {
+		return new Money(amount, BRL);
+	}
 	public static Money of (BigDecimal amount, Currency currency) {
 		return new Money(amount, currency);
 	}

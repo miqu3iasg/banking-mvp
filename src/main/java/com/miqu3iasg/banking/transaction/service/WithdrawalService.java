@@ -65,10 +65,10 @@ public class WithdrawalService {
 
 		schedulePostCommitEvent(saved, account);
 
-		log.info(
-			"Withdrawal completed: account={} amount={} transactionId={}",
-			account.getId(), amount, saved.getId()
-		);
+		log.info("Withdrawal completed: account={} amount={} transactionId={}",
+			account.getId(),
+			amount,
+			saved.getId());
 
 		TransactionResponse response = TransactionResponse.from(saved);
 
