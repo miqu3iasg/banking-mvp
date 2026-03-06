@@ -6,8 +6,8 @@ import com.miqu3iasg.banking.BankingMvpApplication;
 import com.miqu3iasg.banking.account.repository.AccountRepository;
 import com.miqu3iasg.banking.account.service.AccountService;
 import com.miqu3iasg.banking.pix.config.EfiPixProperties;
-import com.miqu3iasg.banking.pix.gateway.EfiPixAuthGateway;
 import com.miqu3iasg.banking.pix.gateway.EfiEvpGateway;
+import com.miqu3iasg.banking.pix.gateway.EfiPixAuthGateway;
 import com.miqu3iasg.banking.pix.gateway.EfiPixGateway;
 import com.miqu3iasg.banking.pix.repository.PixChargeRepository;
 import com.miqu3iasg.banking.pix.repository.PixKeyRepository;
@@ -96,28 +96,53 @@ public abstract class AbstractE2eTestSupport {
 
 	protected WebTestClient sandboxClient () {
 		String token = authGateway.getAccessToken();
+		return buildEfiSandboxProxyClient("Bearer " + token, true);
+	}
 
+	protected WebTestClient unauthenticatedBearerSandboxClient () {
+		return buildEfiSandboxProxyClient("Bearer invalid_token", false);
+	}
+
+	protected WebTestClient unauthenticatedBasicSandboxClient () {
+		return buildEfiSandboxProxyClient("Basic aW52YWxpZDppbnZhbGlk", false);
+	}
+
+	private WebTestClient buildEfiSandboxProxyClient (String authorizationHeader, boolean authenticated) {
 		return WebTestClient
 			.bindToWebHandler(exchange -> {
 				URI requestUri = exchange.getRequest().getURI();
-				String pathAndQuery = requestUri.getRawPath() + (requestUri.getRawQuery() != null ? "?" + requestUri.getRawQuery() : "");
+				String pathAndQuery = requestUri.getRawPath() +
+					(requestUri.getRawQuery() != null ? "?" + requestUri.getRawQuery() : "");
 
-				return efiPixWebClient
+				var client = efiPixWebClient
 					.mutate()
-					.defaultHeader("Authorization", "Bearer " + token)
+					.defaultHeader("Authorization", authorizationHeader)
 					.defaultHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
 					.build()
 					.method(exchange.getRequest().getMethod())
 					.uri(pathAndQuery)
 					.headers(h -> h.addAll(exchange.getRequest().getHeaders()))
-					.body(exchange.getRequest().getBody(), DataBuffer.class)
-					.retrieve()
-					.toEntity(DataBuffer.class)
-					.flatMap(entity -> {
-						exchange.getResponse().setStatusCode(entity.getStatusCode());
-						exchange.getResponse().getHeaders().addAll(entity.getHeaders());
-						return exchange.getResponse().writeWith(Mono.justOrEmpty(entity.getBody()));
-					});
+					.body(exchange.getRequest().getBody(), DataBuffer.class);
+
+				if (authenticated) {
+					return client
+						.retrieve()
+						.toEntity(DataBuffer.class)
+						.flatMap(entity -> {
+							exchange.getResponse().setStatusCode(entity.getStatusCode());
+							exchange.getResponse().getHeaders().addAll(entity.getHeaders());
+							return exchange.getResponse().writeWith(Mono.justOrEmpty(entity.getBody()));
+						});
+				} else {
+					return client
+						.exchangeToMono(response -> {
+							exchange.getResponse().setStatusCode(response.statusCode());
+							exchange.getResponse().getHeaders().addAll(response.headers().asHttpHeaders());
+							return response.bodyToMono(DataBuffer.class)
+								.flatMap(body -> exchange.getResponse().writeWith(Mono.just(body)))
+								.switchIfEmpty(exchange.getResponse().setComplete());
+						});
+				}
 			})
 			.build();
 	}

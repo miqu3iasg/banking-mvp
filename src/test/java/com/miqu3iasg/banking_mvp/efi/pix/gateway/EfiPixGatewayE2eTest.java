@@ -10,13 +10,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.cache.Cache;
-import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.reactive.server.WebTestClient;
-import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
-import java.net.URI;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -93,9 +89,7 @@ class EfiPixGatewayE2eTest extends AbstractE2eTestSupport {
 	@Test
 	@DisplayName("Sandbox must enforce authentication by returning 401 when an invalid bearer token is provided.")
 	void createChargeRawHttpSandboxReturns401WhenBearerTokenIsInvalid () {
-		// Confirms the sandbox actually enforces authentication; a prerequisite for the
-		// gateway's 401 → evict → retry recovery path to have real meaning.
-		unauthenticatedSandboxClient()
+		unauthenticatedBearerSandboxClient()
 			.put()
 			.uri("/v2/cob/{txid}", generateTxid())
 			.contentType(MediaType.APPLICATION_JSON)
@@ -179,8 +173,6 @@ class EfiPixGatewayE2eTest extends AbstractE2eTestSupport {
 	@Test
 	@DisplayName("The first call to obtain an access token must return a valid opaque non-blank string with no whitespace.")
 	void getAccessTokenReturnsValidOpaqueTokenOnFirstCall () {
-		// Efí OAuth2 tokens are opaque strings, not JWTs.
-		// We verify shape only: non-blank, no whitespace, plausible length.
 		String token = authGateway.getAccessToken();
 
 		assertThat(token)
@@ -192,9 +184,6 @@ class EfiPixGatewayE2eTest extends AbstractE2eTestSupport {
 	@Test
 	@DisplayName("Subsequent calls within the TTL window must return the same cached token without triggering a new network round-trip.")
 	void getAccessTokenReturnsSameTokenOnSubsequentCallWithinTtl () {
-		// @Cacheable must serve the cached value without a second network round-trip.
-		// If caching is broken, two consecutive calls return different tokens,
-		// which would cause unnecessary auth pressure under load.
 		String first = authGateway.getAccessToken();
 		String second = authGateway.getAccessToken();
 
@@ -250,7 +239,7 @@ class EfiPixGatewayE2eTest extends AbstractE2eTestSupport {
 		try {
 			efiPixGateway.cancelCharge(activeTxid);
 		} catch (PixGatewayException e) {
-			log.warn("Post-test cleanup failed for txid={} — sandbox state may be dirty: {}", activeTxid, e.getMessage());
+			log.warn("Post-test cleanup failed for txid={}; sandbox state may be dirty: {}", activeTxid, e.getMessage());
 		} finally {
 			activeTxid = null;
 		}
@@ -275,32 +264,5 @@ class EfiPixGatewayE2eTest extends AbstractE2eTestSupport {
 			  "solicitacaoPagador": "E2E test"
 			}
 			""".formatted(CPF_1, String.format(Locale.US, "%.2f", amount), PIX_KEY);
-	}
-
-	private WebTestClient unauthenticatedSandboxClient () {
-		return WebTestClient
-			.bindToWebHandler(exchange -> {
-				URI uri = exchange.getRequest().getURI();
-				String pathAndQuery = uri.getRawPath()
-					+ (uri.getRawQuery() != null ? "?" + uri.getRawQuery() : "");
-
-				return efiPixWebClient
-					.mutate()
-					.defaultHeader("Authorization", "Bearer invalid_token")
-					.defaultHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-					.build()
-					.method(exchange.getRequest().getMethod())
-					.uri(pathAndQuery)
-					.headers(h -> h.addAll(exchange.getRequest().getHeaders()))
-					.body(exchange.getRequest().getBody(), DataBuffer.class)
-					.exchangeToMono(response -> {
-						exchange.getResponse().setStatusCode(response.statusCode());
-						exchange.getResponse().getHeaders().addAll(response.headers().asHttpHeaders());
-						return response.bodyToMono(DataBuffer.class)
-							.flatMap(body -> exchange.getResponse().writeWith(Mono.just(body)))
-							.switchIfEmpty(exchange.getResponse().setComplete());
-					});
-			})
-			.build();
 	}
 }
