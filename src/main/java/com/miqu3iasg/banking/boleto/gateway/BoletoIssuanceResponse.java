@@ -5,4 +5,5 @@ public record BoletoIssuanceResponse(
 	String barcode,
 	String billetLink,
 	String pdfUrl
-) { }
+) {
+}

@@ -1,6 +1,7 @@
 package com.miqu3iasg.banking.boleto.exception;
 
 import java.util.Map;
+import java.util.UUID;
 
 import com.miqu3iasg.banking.shared.exception.BusinessException;
 
