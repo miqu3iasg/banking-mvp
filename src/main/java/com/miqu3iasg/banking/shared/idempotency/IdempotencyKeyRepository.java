@@ -15,19 +15,34 @@ public interface IdempotencyKeyRepository extends JpaRepository<IdempotencyKey, 
 
 	Optional<IdempotencyKey> findByKey (String key);
 
-	/**
-	 * Removes expired records in bulk.
-	 * Should be invoked by a scheduled purge job (e.g. nightly maintenance).
-	 */
 	@Modifying
 	@Transactional
 	@Query(value = """
 		DELETE FROM idempotency_keys
-		WHERE expires_at < :expiredBefore
-		LIMIT :batchSize
+		WHERE idempotency_key IN (
+		    SELECT idempotency_key FROM idempotency_keys
+		    WHERE expires_at < :expiredBefore
+		    LIMIT :batchSize
+		)
 		""", nativeQuery = true)
 	int deleteExpiredBefore (
 		@Param("expiredBefore") Instant expiredBefore,
 		@Param("batchSize") int batchSize
+	);
+
+	@Modifying
+	@Transactional
+	@Query(value = """
+		INSERT INTO idempotency_keys
+		    (idempotency_key, operation_type, response_body, status, created_at, expires_at)
+		VALUES
+		    (:key, :operationType, NULL, 'PENDING', :createdAt, :expiresAt)
+		ON CONFLICT (idempotency_key) DO NOTHING
+		""", nativeQuery = true)
+	int insertIfAbsent (
+		@Param("key") String key,
+		@Param("operationType") String operationType,
+		@Param("createdAt") Instant createdAt,
+		@Param("expiresAt") Instant expiresAt
 	);
 }

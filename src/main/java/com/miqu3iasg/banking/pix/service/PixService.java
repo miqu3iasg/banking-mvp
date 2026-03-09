@@ -7,14 +7,17 @@ import com.miqu3iasg.banking.pix.config.EfiPixProperties;
 import com.miqu3iasg.banking.pix.domain.PixCharge;
 import com.miqu3iasg.banking.pix.domain.PixKey;
 import com.miqu3iasg.banking.pix.domain.PixKeyStatus;
-import com.miqu3iasg.banking.pix.gateway.*;
+import com.miqu3iasg.banking.pix.exception.PixChargeNotFoundException;
+import com.miqu3iasg.banking.pix.exception.PixKeyNotFoundException;
+import com.miqu3iasg.banking.pix.gateway.PixChargeCreationResponse;
+import com.miqu3iasg.banking.pix.gateway.PixChargeRequest;
+import com.miqu3iasg.banking.pix.gateway.PixChargeResponse;
+import com.miqu3iasg.banking.pix.gateway.PixGateway;
 import com.miqu3iasg.banking.pix.metrics.PixMetrics;
 import com.miqu3iasg.banking.pix.repository.PixChargeRepository;
 import com.miqu3iasg.banking.pix.repository.PixKeyRepository;
 import com.miqu3iasg.banking.shared.domain.Money;
 import com.miqu3iasg.banking.shared.exception.AccountNotFoundException;
-import com.miqu3iasg.banking.pix.exception.PixChargeNotFoundException;
-import com.miqu3iasg.banking.pix.exception.PixKeyNotFoundException;
 import com.miqu3iasg.banking.shared.idempotency.IdempotencyService;
 import com.miqu3iasg.banking.transaction.domain.Transaction;
 import com.miqu3iasg.banking.transaction.repository.TransactionRepository;
@@ -34,8 +37,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class PixService {
-	private static final String OPERATION_TYPE_CHARGE = "PIX_CHARGE";
-	private static final String OPERATION_TYPE_WEBHOOK = "PIX_WEBHOOK";
+	private static final String OPERATION_CREATE_CHARGE = "PIX_CREATE_CHARGE";
+	private static final String OPERATION_WEBHOOK_PAYMENT = "PIX_WEBHOOK_PAYMENT";
 
 	private final PixChargeRepository chargeRepository;
 	private final PixKeyRepository keyRepository;
@@ -43,8 +46,8 @@ public class PixService {
 	private final TransactionRepository transactionRepository;
 	private final PixGateway pixGateway;
 	private final IdempotencyService idempotencyService;
-	private final EfiPixProperties pixProperties;
 	private final PixMetrics metrics;
+	private final EfiPixProperties efiPixProperties;
 	private final ApplicationEventPublisher eventPublisher;
 
 	public PixChargeResponse createCharge (
@@ -52,58 +55,80 @@ public class PixService {
 		CreatePixChargeRequest request,
 		String idempotencyKey
 	) {
-		return idempotencyService
-			.findCachedResponse(idempotencyKey, PixChargeResponse.class)
-			.map(cached -> {
-				log.debug("Pix charge creation idempotency HIT: key=[{}]", idempotencyKey);
+		var cached = idempotencyService.findCachedResponse(idempotencyKey, PixChargeResponse.class);
 
-				return cached;
-			})
-			.orElseGet(() -> executeChargeCreation(accountId, request, idempotencyKey));
+		if (cached.isPresent()) {
+			log.debug("createCharge idempotency HIT: key=[{}]", idempotencyKey);
+			return cached.get();
+		}
+
+		boolean winner = idempotencyService.claimKey(idempotencyKey, OPERATION_CREATE_CHARGE);
+		if (!winner) {
+			log.debug("createCharge idempotency LOSER: key=[{}]; waiting for winner to complete", idempotencyKey);
+
+			return idempotencyService
+				.awaitCompletedResponse(idempotencyKey, PixChargeResponse.class)
+				.orElseGet(() -> executeCreateCharge(accountId, request, idempotencyKey));
+		}
+
+		try {
+			PixChargeResponse response = executeCreateCharge(accountId, request, idempotencyKey);
+
+			idempotencyService.completeKey(idempotencyKey, OPERATION_CREATE_CHARGE, response);
+
+			return response;
+		} catch (Exception e) {
+			idempotencyService.deletePendingKey(idempotencyKey);
+			throw e;
+		}
 	}
 
 	@Transactional
-	private PixChargeResponse executeChargeCreation (
+	protected PixChargeResponse executeCreateCharge (
 		UUID accountId,
 		CreatePixChargeRequest request,
 		String idempotencyKey
 	) {
-		return metrics.timeChargeCreation(() -> {
-			String pixKey = keyRepository
-				.findByAccountIdAndStatus(accountId, PixKeyStatus.ACTIVE)
-				.stream()
-				.findFirst()
-				.map(PixKey::getValue)
-				.orElseThrow(() -> new PixKeyNotFoundException("No active PIX key found for account: " + accountId));
+		String activeKey = keyRepository
+			.findByAccountIdAndStatus(accountId, PixKeyStatus.ACTIVE)
+			.stream()
+			.findFirst()
+			.map(PixKey::getValue)
+			.orElseThrow(() -> new PixKeyNotFoundException(
+				"No active PIX key found for accountId=[%s]".formatted(accountId)
+			));
 
-			PixCharge charge = PixCharge.create(
-				accountId,
-				request.amount(),
-				request.payerName(),
-				request.payerCpfCnpj(),
-				generateTxid(),
-				pixProperties.chargeExpiresInSeconds()
-			);
+		String txid = generateTxid();
 
-			chargeRepository.save(charge);
+		PixCharge charge = PixCharge.create(
+			accountId,
+			request.amount(),
+			request.payerName(),
+			request.payerCpfCnpj(),
+			txid,
+			efiPixProperties.chargeExpiresInSeconds()
+		);
 
-			PixChargeRequest gatewayRequest = PixChargeRequest
-				.from(charge, pixKey, pixProperties.chargeExpiresInSeconds());
+		PixChargeRequest gatewayRequest = PixChargeRequest
+			.from(charge, activeKey, efiPixProperties.chargeExpiresInSeconds());
 
-			PixChargeCreationResponse gatewayResult = pixGateway.createCharge(gatewayRequest);
+		PixChargeCreationResponse gatewayResponse = metrics
+			.timeChargeCreation(() -> pixGateway.createCharge(gatewayRequest));
 
-			charge.enrichWithProviderData(gatewayResult.location(), gatewayResult.copyPaste());
+		charge.enrichWithProviderData(
+			gatewayResponse.txid(),
+			gatewayResponse.location(),
+			gatewayResponse.copyPaste()
+		);
 
-			PixChargeResponse response = PixChargeResponse.from(charge);
-			idempotencyService.markProcessed(idempotencyKey, OPERATION_TYPE_CHARGE, response);
+		chargeRepository.save(charge);
 
-			log.info("PIX charge created: txid={} accountId={} amount={}",
-				charge.getTxid(),
-				accountId,
-				charge.getAmount());
+		log.info("PIX charge created: txid=[{}] account=[{}] amount=[{}]",
+			txid,
+			accountId,
+			request.amount());
 
-			return response;
-		});
+		return PixChargeResponse.from(charge);
 	}
 
 	@Transactional(readOnly = true)
@@ -129,53 +154,62 @@ public class PixService {
 
 	@Transactional
 	public void processWebhookPayment (String txid, Instant paidAt, String idempotencyKey) {
-		if (isAlreadyProcessed(idempotencyKey, txid)) return;
+		var cached = idempotencyService.findCachedResponse(idempotencyKey, PixChargeResponse.class);
 
+		if (cached.isPresent()) {
+			log.debug("processWebhookPayment idempotency HIT: key=[{}]", idempotencyKey);
+			return;
+		}
+
+		boolean winner = idempotencyService.claimKey(idempotencyKey, OPERATION_WEBHOOK_PAYMENT);
+		if (!winner) {
+			idempotencyService.awaitCompletedResponse(idempotencyKey, PixChargeResponse.class);
+
+			return;
+		}
+
+		try {
+			PixChargeResponse response = executeWebhookPayment(txid, paidAt);
+			idempotencyService.completeKey(idempotencyKey, OPERATION_WEBHOOK_PAYMENT, response);
+		} catch (Exception e) {
+			idempotencyService.deletePendingKey(idempotencyKey);
+			throw e;
+		}
+	}
+
+	@Transactional
+	protected PixChargeResponse executeWebhookPayment(String txid, Instant paidAt) {
 		PixCharge charge = chargeRepository.findByTxid(txid)
-			.orElseThrow(() -> {
-				metrics.recordWebhookRejected("txid_not_found");
-
-				return new PixChargeNotFoundException(txid);
-			});
+			.orElseThrow(() -> new PixChargeNotFoundException(txid));
 
 		Account account = accountRepository.findById(charge.getAccountId())
 			.orElseThrow(() -> new AccountNotFoundException(charge.getAccountId()));
 
-		Money creditAmount = Money.of(charge.getAmount());
-
 		charge.markAsPaid(paidAt);
-		account.credit(creditAmount);
+		chargeRepository.save(charge);
 
-		Transaction transaction = transactionRepository.save(
-			Transaction.credit(
-				account.getId(),
-				creditAmount,
-				"PIX received; txid: " + txid,
-				txid
-			)
+		account.credit(Money.of(charge.getAmount()));
+		accountRepository.save(account);
+
+		Transaction transaction = Transaction.credit(
+			account.getId(),
+			Money.brl(charge.getAmount()),
+			"PIX received; txid: " + txid,
+			txid
 		);
 
-		idempotencyService.markProcessed(idempotencyKey, OPERATION_TYPE_WEBHOOK, null);
+		transactionRepository.save(transaction);
 
 		schedulePostCommitEvent(transaction);
 
 		metrics.recordPaymentReceived();
 
-		log.info("PIX payment recorded: txid={} accountId={} amount={} paidAt={}",
+		log.info("PIX payment processed: txid=[{}] account=[{}] amount=[{}]",
 			txid,
-			charge.getAccountId(),
-			charge.getAmount(),
-			paidAt);
-	}
+			account.getId(),
+			charge.getAmount());
 
-	private boolean isAlreadyProcessed (String idempotencyKey, String txid) {
-		boolean duplicate = idempotencyService.findCachedResponse(idempotencyKey, Void.class).isPresent();
-
-		if (duplicate) {
-			log.debug("Webhook already processed (idempotent): txid={} key={}", txid, idempotencyKey);
-		}
-
-		return duplicate;
+		return PixChargeResponse.from(charge);
 	}
 
 	private void schedulePostCommitEvent (Transaction transaction) {

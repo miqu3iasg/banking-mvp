@@ -14,10 +14,7 @@ import com.miqu3iasg.banking.shared.exception.BusinessException;
 import com.miqu3iasg.banking.shared.exception.InvalidDocumentException;
 import com.miqu3iasg.banking.shared.exception.InvalidRequestException;
 import com.miqu3iasg.banking_mvp.shared.support.AbstractIntegrationTestSupport;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.RepeatedTest;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
@@ -39,6 +36,11 @@ class AccountServiceIntegrationTest extends AbstractIntegrationTestSupport {
 
 	private static final int CONCURRENT_USERS = 50;
 	private static final int TIMEOUT_SECONDS = 30;
+
+	@BeforeEach
+	void cleanDatabase () {
+		accountRepository.deleteAll();
+	}
 
 	@Nested
 	@DisplayName("Opening a new account")

@@ -26,29 +26,20 @@ public class IdempotencyService {
 	private static final int PURGE_MAX_BATCHES = 500;
 	private static final long PURGE_BATCH_DELAY_MS = 100L;
 
+	private static final int AWAIT_MAX_ATTEMPTS = 100;
+	private static final long AWAIT_POLL_MS = 100L;
+
 	private final IdempotencyKeyRepository repository;
 	private final ObjectMapper objectMapper;
 	private final IdempotencyMetrics metrics;
 	private final Clock clock;
 
-	/**
-	 * Returns the cached response for the given idempotency key if one exists
-	 * and has not expired, deserialized to the requested type.
-	 *
-	 * <p>A cache miss (key not found, or key expired) returns an empty
-	 * {@link Optional}. The caller is responsible for executing the operation
-	 * and subsequently calling {@link #markProcessed}.
-	 *
-	 * @param key          the idempotency key from the request header
-	 * @param responseType the target type to deserialize the cached payload into
-	 * @param <T>          response type
-	 * @return a populated {@link Optional} on a valid cache hit; empty otherwise
-	 */
 	@Transactional(readOnly = true)
 	public <T> Optional<T> findCachedResponse (String key, Class<T> responseType) {
 		Optional<IdempotencyKey> record = repository
 			.findByKey(key)
-			.filter(ik -> !ik.isExpiredAt(clock));
+			.filter(ik -> !ik.isExpiredAt(clock))
+			.filter(ik -> ik.getStatus() == IdempotencyKeyStatus.COMPLETED);
 
 		boolean hit = record.isPresent();
 
@@ -65,17 +56,6 @@ public class IdempotencyService {
 		);
 	}
 
-	/**
-	 * Persists an idempotency record for the given key and response.
-	 *
-	 * <p>Runs in {@link Propagation#REQUIRES_NEW}: the record is committed in
-	 * its own transaction, independently of the caller's transaction boundary.
-	 * See class-level javadoc for the rationale.
-	 *
-	 * @param key           client-supplied idempotency key
-	 * @param operationType human-readable operation classifier (e.g. "TRANSFER")
-	 * @param response      the response object to serialise and store
-	 */
 	@Transactional(propagation = Propagation.REQUIRES_NEW)
 	public void markProcessed (String key, String operationType, Object response) {
 		String responseBody = serialize(response);
@@ -84,6 +64,7 @@ public class IdempotencyService {
 	}
 
 	private void persistKey (String key, String operationType, String responseBody) {
+
 		try {
 			IdempotencyKey record = IdempotencyKey.create(key, operationType, responseBody, clock);
 
@@ -95,13 +76,85 @@ public class IdempotencyService {
 			);
 
 		} catch (DataIntegrityViolationException e) {
-			// A concurrent request committed the same key first. This is expected
-			// under normal race conditions; both requests executed the operation,
-			// but only one record survives. The caller's response is still valid.
 			metrics.recordDuplicateCommit(operationType);
 
 			log.debug("Idempotency key [{}] already committed by concurrent request (safe)", key);
 		}
+	}
+
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public boolean claimKey (String key, String operationType) {
+		Instant now = Instant.now(clock);
+		Instant expires = now.plus(IdempotencyKey.RETENTION);
+
+		int inserted = repository.insertIfAbsent(key, operationType, now, expires);
+
+		boolean winner = inserted == 1;
+
+		if (!winner) {
+			log.debug("Idempotency key [{}] already claimed by concurrent request", key);
+			metrics.recordDuplicateCommit(operationType);
+		}
+
+		return winner;
+	}
+
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public void completeKey (String key, String operationType, Object response) {
+		String responseBody = serialize(response);
+
+		metrics.timeStore(operationType, () -> {
+			repository.findByKey(key).ifPresent(ik -> {
+
+				ik.complete(responseBody);
+
+				repository.save(ik);
+
+				log.debug("Idempotency key completed: key=[{}] operation=[{}]", key, operationType);
+			});
+		});
+	}
+
+	public <T> Optional<T> awaitCompletedResponse (String key, Class<T> responseType) {
+		for (int attempt = 0; attempt < AWAIT_MAX_ATTEMPTS; attempt++) {
+			Optional<T> result = pollForCompletion(key, responseType);
+
+			if (result.isPresent()) {
+				log.debug("Loser thread resolved key=[{}] after {} poll(s)", key, attempt + 1);
+				return result;
+			}
+
+			try {
+				Thread.sleep(AWAIT_POLL_MS);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				break;
+			}
+		}
+
+		log.warn("Timed out waiting for idempotency key=[{}] to complete after {}ms",
+			key,
+			(long) AWAIT_MAX_ATTEMPTS * AWAIT_POLL_MS);
+
+		return Optional.empty();
+	}
+
+	@Transactional(readOnly = true, propagation = Propagation.REQUIRES_NEW)
+	public <T> Optional<T> pollForCompletion (String key, Class<T> responseType) {
+		return repository.findByKey(key)
+			.filter(ik -> ik.getStatus() == IdempotencyKeyStatus.COMPLETED)
+			.filter(ik -> !ik.isExpiredAt(clock))
+			.map(ik -> deserialize(ik.getResponseBody(), responseType));
+	}
+
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public void deletePendingKey (String key) {
+		repository.findByKey(key)
+			.filter(ik -> ik.getStatus() == IdempotencyKeyStatus.PENDING)
+			.ifPresent(ik -> {
+				repository.delete(ik);
+				log.debug("Deleted PENDING idempotency key=[{}] after operation failure", key);
+			});
 	}
 
 	@Scheduled(cron = "0 0 0 * * *")

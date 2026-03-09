@@ -94,7 +94,8 @@ public class PixCharge extends AuditableEntity {
 		return charge;
 	}
 
-	public void enrichWithProviderData (String qrCode, String copyPaste) {
+	public void enrichWithProviderData (String txid, String qrCode, String copyPaste) {
+		this.txid = txid;
 		this.qrCode = qrCode;
 		this.copyPaste = copyPaste;
 	}

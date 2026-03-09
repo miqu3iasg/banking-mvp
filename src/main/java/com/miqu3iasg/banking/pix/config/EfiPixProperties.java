@@ -65,7 +65,18 @@ public record EfiPixProperties(
 	  Controls how long the PIX WebClient waits for a response from Efí Bank
 	  before raising a timeout error.
 	 */
-	@Positive int responseTimeoutInSeconds
+	@Positive int responseTimeoutInSeconds,
+
+	/*
+	  Optional override for the Efí Bank API base URL.
+	  When set, takes precedence over the sandbox-computed URL.
+	  Intended exclusively for integration tests that redirect traffic to a
+	  WireMock server: set efi.pix.base-url=http://localhost:{port} via
+	  @DynamicPropertySource and the real mTLS WebClient pipeline is used
+	  end-to-end against the stub, with no bean override required.
+	  Must not be set in production or staging environments.
+	 */
+	String baseUrlOverride
 
 ) implements EfiProperties {
 
@@ -78,6 +89,8 @@ public record EfiPixProperties(
 	 */
 	@Override
 	public String baseUrl () {
+		if (baseUrlOverride != null && !baseUrlOverride.isBlank()) return baseUrlOverride;
+
 		return Boolean.TRUE.equals(sandbox)
 			? "https://pix-h.api.efipay.com.br"
 			: "https://pix.api.efipay.com.br";

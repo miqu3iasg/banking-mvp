@@ -7,9 +7,13 @@ import com.miqu3iasg.banking.account.domain.AccountAction;
 import com.miqu3iasg.banking.account.domain.AccountType;
 import com.miqu3iasg.banking.account.repository.AccountRepository;
 import com.miqu3iasg.banking.account.service.AccountService;
-import org.junit.jupiter.api.BeforeEach;
+import com.miqu3iasg.banking.pix.repository.PixChargeRepository;
+import com.miqu3iasg.banking.pix.repository.PixKeyRepository;
+import com.miqu3iasg.banking.pix.service.PixService;
+import com.miqu3iasg.banking.transaction.repository.TransactionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.cache.CacheManager;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -28,9 +32,18 @@ public abstract class AbstractIntegrationTestSupport {
 
 	@Autowired
 	protected AccountService accountService;
-
 	@Autowired
 	protected AccountRepository accountRepository;
+	@Autowired
+	protected PixService pixService;
+	@Autowired
+	protected PixChargeRepository chargeRepository;
+	@Autowired
+	protected PixKeyRepository keyRepository;
+	@Autowired
+	protected TransactionRepository transactionRepository;
+	@Autowired
+	protected CacheManager cacheManager;
 
 	@Container
 	static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine")
@@ -47,11 +60,6 @@ public abstract class AbstractIntegrationTestSupport {
 		registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
 		registry.add("spring.jpa.hibernate.ddl-auto", () -> "create-drop");
 		registry.add("outbox.processor.enabled", () -> "false");
-	}
-
-	@BeforeEach
-	void cleanDatabase () {
-		accountRepository.deleteAll();
 	}
 
 	protected static CreateAccountRequest checking (String document) {

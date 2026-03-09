@@ -10,12 +10,14 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 @Repository
 public interface TransactionRepository extends JpaRepository<Transaction, UUID> {
 	Optional<Transaction> findByIdempotencyKey (String idempotencyKey);
+	List<Transaction> findByAccountId (UUID accountId);
 
 	@Query("""
 		SELECT t FROM Transaction t

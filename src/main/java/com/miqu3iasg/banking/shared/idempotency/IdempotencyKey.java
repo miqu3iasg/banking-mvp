@@ -32,8 +32,12 @@ public class IdempotencyKey {
 	@Column(name = "idempotency_key", nullable = false, unique = true, updatable = false, length = 100)
 	private String key;
 
-	@Column(name = "response_body", columnDefinition = "TEXT", nullable = false, updatable = false)
+	@Column(name = "response_body", columnDefinition = "TEXT", nullable = true, updatable = true)
 	private String responseBody;
+
+	@Column(name = "status", nullable = false, length = 20, updatable = true)
+	@Enumerated(EnumType.STRING)
+	private IdempotencyKeyStatus status;
 
 	@Column(name = "operation_type", nullable = false, updatable = false, length = 50)
 	private String operationType;
@@ -44,7 +48,6 @@ public class IdempotencyKey {
 	@Column(name = "expires_at", nullable = false, updatable = false)
 	private Instant expiresAt;
 
-
 	private IdempotencyKey (String key, String operationType, String responseBody, Clock clock) {
 		this.createdAt = Instant.now(clock);
 		this.expiresAt = this.createdAt.plus(RETENTION);
@@ -53,25 +56,6 @@ public class IdempotencyKey {
 		this.responseBody = responseBody;
 	}
 
-	/**
-	 * Creates and returns a new, fully validated {@code IdempotencyKey}.
-	 *
-	 * <p>This is the only public construction path. All field-level invariants
-	 * are enforced here so that every instance retrieved from the repository is
-	 * guaranteed to be in a valid state.
-	 *
-	 * @param key           client-supplied idempotency key; must be non-blank and
-	 *                      at most 100 characters
-	 * @param operationType logical operation name (e.g. {@code "TRANSFER"}); must
-	 *                      be non-blank and at most 50 characters
-	 * @param responseBody  serialised JSON response to cache; must be non-blank
-	 * @param clock         clock used to compute {@code createdAt}/{@code expiresAt};
-	 *                      pass a fixed clock in tests for deterministic assertions
-	 * @return a new, immutable {@code IdempotencyKey}
-	 * @throws IllegalArgumentException if any text argument is blank or exceeds
-	 *                                  its maximum length
-	 * @throws NullPointerException     if {@code clock} is {@code null}
-	 */
 	public static IdempotencyKey create (
 		String key,
 		String operationType,
@@ -96,6 +80,12 @@ public class IdempotencyKey {
 	public boolean isExpiredAt (Clock clock) {
 		Objects.requireNonNull(clock, "clock must not be null");
 		return Instant.now(clock).isAfter(expiresAt);
+	}
+
+	public void complete (String responseBody) {
+		Assert.hasText(responseBody, "responseBody must be not blank");
+		this.responseBody = responseBody;
+		this.status = IdempotencyKeyStatus.COMPLETED;
 	}
 
 	@Override
