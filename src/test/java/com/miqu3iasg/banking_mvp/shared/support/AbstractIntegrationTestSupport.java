@@ -11,6 +11,7 @@ import com.miqu3iasg.banking.pix.repository.PixChargeRepository;
 import com.miqu3iasg.banking.pix.repository.PixKeyRepository;
 import com.miqu3iasg.banking.pix.service.PixService;
 import com.miqu3iasg.banking.transaction.repository.TransactionRepository;
+import com.miqu3iasg.banking.transaction.service.DepositService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.cache.CacheManager;
@@ -44,6 +45,8 @@ public abstract class AbstractIntegrationTestSupport {
 	protected TransactionRepository transactionRepository;
 	@Autowired
 	protected CacheManager cacheManager;
+	@Autowired
+	protected DepositService depositService;
 
 	@Container
 	static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine")

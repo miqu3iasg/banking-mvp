@@ -120,6 +120,10 @@ public class PixCharge extends AuditableEntity {
 		return status == PixChargeStatus.PENDING && Instant.now().isAfter(expiresAt);
 	}
 
+	public boolean isCancelled () {
+		return status == PixChargeStatus.CANCELLED;
+	}
+
 	private void requireCanTransitionTo (PixChargeStatus target) {
 		if (!this.status.canTransitionTo(target)) {
 			throw new InvalidPixStateTransitionException(txid, this.status, target);

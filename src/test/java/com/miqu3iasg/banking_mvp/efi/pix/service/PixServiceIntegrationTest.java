@@ -14,6 +14,7 @@ import com.miqu3iasg.banking.pix.exception.PixGatewayException;
 import com.miqu3iasg.banking.pix.exception.PixKeyNotFoundException;
 import com.miqu3iasg.banking.pix.gateway.PixChargeResponse;
 import com.miqu3iasg.banking.shared.exception.AccountNotFoundException;
+import com.miqu3iasg.banking.shared.exception.IdempotencyTimeoutException;
 import com.miqu3iasg.banking_mvp.shared.support.AbstractIntegrationTestSupport;
 import org.junit.jupiter.api.*;
 import org.springframework.http.HttpHeaders;
@@ -32,8 +33,7 @@ import java.util.stream.IntStream;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.*;
 
 class PixServiceIntegrationTest extends AbstractIntegrationTestSupport {
 
@@ -403,13 +403,16 @@ class PixServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		}
 
 		@Test
-		@DisplayName("throws InvalidPixStateTransitionException when attempting to cancel an already CANCELLED charge")
-		void cancelAlreadyCancelledChargeThrows () {
+		@DisplayName("cancelling an already CANCELLED charge is a no-op and does not throw")
+		void cancelAlreadyCancelledChargeIsNoOp () {
 			PixChargeResponse created = createCharge(new BigDecimal("150.00"));
 			pixService.cancelCharge(created.txid(), accountId);
 
-			assertThatThrownBy(() -> pixService.cancelCharge(created.txid(), accountId))
-				.isInstanceOf(InvalidPixStateTransitionException.class);
+			assertThatNoException()
+				.isThrownBy(() -> pixService.cancelCharge(created.txid(), accountId));
+
+			assertThat(pixService.getCharge(created.txid(), accountId).status())
+				.isEqualTo(PixChargeStatus.CANCELLED.name());
 		}
 
 		@Test
@@ -522,7 +525,7 @@ class PixServiceIntegrationTest extends AbstractIntegrationTestSupport {
 						start.await();
 						try {
 							pixService.processWebhookPayment(created.txid(), paidAt, key);
-						} catch (InvalidPixStateTransitionException ignored) {
+						} catch (InvalidPixStateTransitionException | IdempotencyTimeoutException ignored) {
 						} catch (Exception e) {
 							unexpected.add(e);
 						}

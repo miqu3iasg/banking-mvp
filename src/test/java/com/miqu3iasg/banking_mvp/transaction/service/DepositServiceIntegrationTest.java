@@ -6,12 +6,10 @@ import com.miqu3iasg.banking.account.domain.Account;
 import com.miqu3iasg.banking.shared.domain.Money;
 import com.miqu3iasg.banking.transaction.api.dto.DepositRequest;
 import com.miqu3iasg.banking.transaction.domain.TransactionType;
-import com.miqu3iasg.banking.transaction.service.DepositService;
 import com.miqu3iasg.banking_mvp.shared.support.AbstractIntegrationTestSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -24,9 +22,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
-
-	@Autowired
-	DepositService depositService;
 
 	@Test
 	@Transactional

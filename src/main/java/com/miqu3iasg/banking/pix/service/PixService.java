@@ -18,6 +18,7 @@ import com.miqu3iasg.banking.pix.repository.PixChargeRepository;
 import com.miqu3iasg.banking.pix.repository.PixKeyRepository;
 import com.miqu3iasg.banking.shared.domain.Money;
 import com.miqu3iasg.banking.shared.exception.AccountNotFoundException;
+import com.miqu3iasg.banking.shared.exception.IdempotencyTimeoutException;
 import com.miqu3iasg.banking.shared.idempotency.IdempotencyService;
 import com.miqu3iasg.banking.transaction.domain.Transaction;
 import com.miqu3iasg.banking.transaction.repository.TransactionRepository;
@@ -32,6 +33,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.time.Instant;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 @Slf4j
 @Service
@@ -55,36 +57,16 @@ public class PixService {
 		CreatePixChargeRequest request,
 		String idempotencyKey
 	) {
-		var cached = idempotencyService.findCachedResponse(idempotencyKey, PixChargeResponse.class);
-
-		if (cached.isPresent()) {
-			log.debug("createCharge idempotency HIT: key=[{}]", idempotencyKey);
-			return cached.get();
-		}
-
-		boolean winner = idempotencyService.claimKey(idempotencyKey, OPERATION_CREATE_CHARGE);
-		if (!winner) {
-			log.debug("createCharge idempotency LOSER: key=[{}]; waiting for winner to complete", idempotencyKey);
-
-			return idempotencyService
-				.awaitCompletedResponse(idempotencyKey, PixChargeResponse.class)
-				.orElseGet(() -> executeCreateCharge(accountId, request, idempotencyKey));
-		}
-
-		try {
-			PixChargeResponse response = executeCreateCharge(accountId, request, idempotencyKey);
-
-			idempotencyService.completeKey(idempotencyKey, OPERATION_CREATE_CHARGE, response);
-
-			return response;
-		} catch (Exception e) {
-			idempotencyService.deletePendingKey(idempotencyKey);
-			throw e;
-		}
+		return executeIdempotent(
+			idempotencyKey,
+			OPERATION_CREATE_CHARGE,
+			PixChargeResponse.class,
+			() -> executeCreateCharge(accountId, request, idempotencyKey)
+		);
 	}
 
 	@Transactional
-	protected PixChargeResponse executeCreateCharge (
+	PixChargeResponse executeCreateCharge (
 		UUID accountId,
 		CreatePixChargeRequest request,
 		String idempotencyKey
@@ -145,40 +127,28 @@ public class PixService {
 			.filter(c -> c.getAccountId().equals(accountId))
 			.orElseThrow(() -> new PixChargeNotFoundException(txid));
 
-		charge.cancel();
+		if (charge.isCancelled()) return;
 
 		pixGateway.cancelCharge(txid);
+
+		charge.cancel();
+		chargeRepository.save(charge);
 
 		log.info("PIX charge cancelled: txid={} accountId={}", txid, accountId);
 	}
 
 	@Transactional
 	public void processWebhookPayment (String txid, Instant paidAt, String idempotencyKey) {
-		var cached = idempotencyService.findCachedResponse(idempotencyKey, PixChargeResponse.class);
-
-		if (cached.isPresent()) {
-			log.debug("processWebhookPayment idempotency HIT: key=[{}]", idempotencyKey);
-			return;
-		}
-
-		boolean winner = idempotencyService.claimKey(idempotencyKey, OPERATION_WEBHOOK_PAYMENT);
-		if (!winner) {
-			idempotencyService.awaitCompletedResponse(idempotencyKey, PixChargeResponse.class);
-
-			return;
-		}
-
-		try {
-			PixChargeResponse response = executeWebhookPayment(txid, paidAt);
-			idempotencyService.completeKey(idempotencyKey, OPERATION_WEBHOOK_PAYMENT, response);
-		} catch (Exception e) {
-			idempotencyService.deletePendingKey(idempotencyKey);
-			throw e;
-		}
+		executeIdempotent(
+			idempotencyKey,
+			OPERATION_WEBHOOK_PAYMENT,
+			PixChargeResponse.class,
+			() -> executeWebhookPayment(txid, paidAt)
+		);
 	}
 
 	@Transactional
-	protected PixChargeResponse executeWebhookPayment(String txid, Instant paidAt) {
+	PixChargeResponse executeWebhookPayment (String txid, Instant paidAt) {
 		PixCharge charge = chargeRepository.findByTxid(txid)
 			.orElseThrow(() -> new PixChargeNotFoundException(txid));
 
@@ -220,6 +190,36 @@ public class PixService {
 					TransactionCompletedEvent.ofSingleAccount(transaction));
 			}
 		});
+	}
+
+	private <T> T executeIdempotent (
+		String idempotencyKey,
+		String operation,
+		Class<T> responseType,
+		Supplier<T> action
+	) {
+		var cached = idempotencyService.findCachedResponse(idempotencyKey, responseType);
+		if (cached.isPresent()) {
+			log.debug("idempotency HIT: operation=[{}] key=[{}]", operation, idempotencyKey);
+			return cached.get();
+		}
+
+		boolean winner = idempotencyService.claimKey(idempotencyKey, operation);
+		if (!winner) {
+			log.debug("idempotency LOSER: operation=[{}] key=[{}]; awaiting winner", operation, idempotencyKey);
+			return idempotencyService
+				.awaitCompletedResponse(idempotencyKey, responseType)
+				.orElseThrow(() -> new IdempotencyTimeoutException(idempotencyKey));
+		}
+
+		try {
+			T response = action.get();
+			idempotencyService.completeKey(idempotencyKey, operation, response);
+			return response;
+		} catch (Exception e) {
+			idempotencyService.deletePendingKey(idempotencyKey);
+			throw e;
+		}
 	}
 
 	private String generateTxid () {
