@@ -1,4 +1,4 @@
-package com.miqu3iasg.banking.account.api.dto;
+package com.miqu3iasg.banking.transaction.api.dto;
 
 import com.miqu3iasg.banking.transaction.domain.Transaction;
 import com.miqu3iasg.banking.transaction.domain.TransactionStatus;

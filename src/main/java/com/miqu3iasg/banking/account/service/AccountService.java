@@ -186,13 +186,11 @@ public class AccountService {
 
 					metrics.recordLockRetry(action != null ? action : "-", attempt + 1);
 				} else {
-					log.error(
-						"Non-retryable failure on account {} action {} (attempt {})",
+					log.error("Non-retryable failure on account {} action {} (attempt {})",
 						accountId,
 						action,
 						attempt + 1,
-						t
-					);
+						t);
 				}
 			}
 		};

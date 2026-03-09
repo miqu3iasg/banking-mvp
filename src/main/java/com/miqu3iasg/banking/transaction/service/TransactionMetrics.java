@@ -18,11 +18,14 @@ public class TransactionMetrics {
 	private static final String TRANSACTION_AMOUNT = "banking.transactions.amount";
 	private static final String PENDING_TRANSACTIONS = "banking.transactions.pending.gauge";
 	private static final String ERRORS = "banking.transactions.errors.total";
+	private static final String LOCK_RETRIES = "banking.transactions.lock.retries.total";
 
 	private static final String TAG_TYPE = "type";
 	private static final String TAG_RESULT = "result";
 	private static final String TAG_ERROR_CODE = "error_code";
 	private static final String TAG_CURRENCY = "currency";
+	private static final String TAG_ACTION = "action";
+	private static final String TAG_RETRY_ATTEMPT = "retry_attempt";
 
 	private static final String RESULT_SUCCESS = "success";
 	private static final String RESULT_FAILURE = "failure";
@@ -92,6 +95,15 @@ public class TransactionMetrics {
 		Gauge.builder(PENDING_TRANSACTIONS, supplier)
 			.description("Current number of transactions in PENDING status")
 			.register(registry);
+	}
+
+	public void recordLockRetry (String action, int retryAttempt) {
+		Counter.builder(LOCK_RETRIES)
+			.description("Total number of optimistic-lock retries by action and attempt number")
+			.tag(TAG_ACTION, action.toLowerCase())
+			.tag(TAG_RETRY_ATTEMPT, String.valueOf(retryAttempt))
+			.register(registry)
+			.increment();
 	}
 
 	private void recordCompleted (OperationType type, String currency) {

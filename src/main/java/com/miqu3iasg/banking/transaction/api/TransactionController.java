@@ -1,6 +1,6 @@
 package com.miqu3iasg.banking.transaction.api;
 
-import com.miqu3iasg.banking.account.api.dto.TransactionResponse;
+import com.miqu3iasg.banking.transaction.api.dto.TransactionResponse;
 import com.miqu3iasg.banking.transaction.api.dto.DepositRequest;
 import com.miqu3iasg.banking.transaction.api.dto.TransferRequest;
 import com.miqu3iasg.banking.transaction.api.dto.WithdrawalRequest;

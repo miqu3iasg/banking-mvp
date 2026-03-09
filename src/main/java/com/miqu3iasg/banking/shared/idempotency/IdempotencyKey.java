@@ -48,10 +48,11 @@ public class IdempotencyKey {
 	@Column(name = "expires_at", nullable = false, updatable = false)
 	private Instant expiresAt;
 
-	private IdempotencyKey (String key, String operationType, String responseBody, Clock clock) {
+	private IdempotencyKey (String key, String operationType, String responseBody, IdempotencyKeyStatus status, Clock clock) {
 		this.createdAt = Instant.now(clock);
 		this.expiresAt = this.createdAt.plus(RETENTION);
 		this.key = key;
+		this.status = status;
 		this.operationType = operationType;
 		this.responseBody = responseBody;
 	}
@@ -60,6 +61,7 @@ public class IdempotencyKey {
 		String key,
 		String operationType,
 		String responseBody,
+		IdempotencyKeyStatus status,
 		Clock clock
 	) {
 		Assert.hasText(key, "key must not be blank");
@@ -70,7 +72,7 @@ public class IdempotencyKey {
 		Assert.isTrue(key.length() <= 100, () -> "key must not exceed 100 characters, got: " + key.length());
 		Assert.isTrue(operationType.length() <= 50, () -> "operationType must not exceed 50 characters, got: " + operationType.length());
 
-		return new IdempotencyKey(key, operationType, responseBody, clock);
+		return new IdempotencyKey(key, operationType, responseBody, status, clock);
 	}
 
 	public boolean isExpired () {

@@ -57,7 +57,7 @@ public class PixService {
 		CreatePixChargeRequest request,
 		String idempotencyKey
 	) {
-		return executeIdempotent(
+		return executeOrAwaitIdempotentOperation(
 			idempotencyKey,
 			OPERATION_CREATE_CHARGE,
 			PixChargeResponse.class,
@@ -139,7 +139,7 @@ public class PixService {
 
 	@Transactional
 	public void processWebhookPayment (String txid, Instant paidAt, String idempotencyKey) {
-		executeIdempotent(
+		executeOrAwaitIdempotentOperation(
 			idempotencyKey,
 			OPERATION_WEBHOOK_PAYMENT,
 			PixChargeResponse.class,
@@ -182,17 +182,7 @@ public class PixService {
 		return PixChargeResponse.from(charge);
 	}
 
-	private void schedulePostCommitEvent (Transaction transaction) {
-		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-			@Override
-			public void afterCommit () {
-				eventPublisher.publishEvent(
-					TransactionCompletedEvent.ofSingleAccount(transaction));
-			}
-		});
-	}
-
-	private <T> T executeIdempotent (
+	private <T> T executeOrAwaitIdempotentOperation (
 		String idempotencyKey,
 		String operation,
 		Class<T> responseType,
@@ -220,6 +210,16 @@ public class PixService {
 			idempotencyService.deletePendingKey(idempotencyKey);
 			throw e;
 		}
+	}
+
+	private void schedulePostCommitEvent (Transaction transaction) {
+		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override
+			public void afterCommit () {
+				eventPublisher.publishEvent(
+					TransactionCompletedEvent.ofSingleAccount(transaction));
+			}
+		});
 	}
 
 	private String generateTxid () {

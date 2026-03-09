@@ -10,10 +10,12 @@ import com.miqu3iasg.banking.account.service.AccountService;
 import com.miqu3iasg.banking.pix.repository.PixChargeRepository;
 import com.miqu3iasg.banking.pix.repository.PixKeyRepository;
 import com.miqu3iasg.banking.pix.service.PixService;
+import com.miqu3iasg.banking.shared.idempotency.IdempotencyKeyRepository;
 import com.miqu3iasg.banking.transaction.repository.TransactionRepository;
 import com.miqu3iasg.banking.transaction.service.DepositService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -22,8 +24,13 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.Objects;
+
 @Testcontainers
-@SpringBootTest(classes = BankingMvpApplication.class)
+@SpringBootTest(
+	classes  = BankingMvpApplication.class,
+	webEnvironment = SpringBootTest.WebEnvironment.NONE
+)
 @ActiveProfiles("integration-test")
 public abstract class AbstractIntegrationTestSupport {
 
@@ -47,6 +54,8 @@ public abstract class AbstractIntegrationTestSupport {
 	protected CacheManager cacheManager;
 	@Autowired
 	protected DepositService depositService;
+	@Autowired
+	protected IdempotencyKeyRepository idempotencyKeyRepository;
 
 	@Container
 	static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine")
@@ -120,5 +129,13 @@ public abstract class AbstractIntegrationTestSupport {
 			digits[3], digits[4], digits[5],
 			digits[6], digits[7], digits[8],
 			digits[9], digits[10]);
+	}
+
+	protected void clearAllCaches () {
+		cacheManager.getCacheNames()
+			.stream()
+			.map(cacheManager::getCache)
+			.filter(Objects::nonNull)
+			.forEach(Cache::clear);
 	}
 }

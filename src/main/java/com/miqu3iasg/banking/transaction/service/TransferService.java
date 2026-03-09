@@ -1,6 +1,6 @@
 package com.miqu3iasg.banking.transaction.service;
 
-import com.miqu3iasg.banking.account.api.dto.TransactionResponse;
+import com.miqu3iasg.banking.transaction.api.dto.TransactionResponse;
 import com.miqu3iasg.banking.account.domain.Account;
 import com.miqu3iasg.banking.account.repository.AccountRepository;
 import com.miqu3iasg.banking.shared.domain.Money;

@@ -1,7 +1,6 @@
 package com.miqu3iasg.banking.shared.config;
 
 import com.miqu3iasg.banking.pix.exception.PixAuthenticationException;
-import com.miqu3iasg.banking.pix.exception.PixGatewayException;
 import jakarta.persistence.OptimisticLockException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -38,7 +37,7 @@ public class RetryConfig {
 
 		backOff.setInitialInterval(props.baseDelayMs());
 		backOff.setMultiplier(props.multiplier());
-		backOff.setMaxInterval(props.baseDelayMs());
+		backOff.setMaxInterval(props.maxDelayMs());
 
 		return RetryTemplate.builder()
 			.customPolicy(retryPolicy)
@@ -62,6 +61,30 @@ public class RetryConfig {
 		backOff.setInitialInterval(props.baseDelayMs());
 		backOff.setMultiplier(props.multiplier());
 		backOff.setMaxInterval(props.baseDelayMs());
+
+		return RetryTemplate.builder()
+			.customPolicy(retryPolicy)
+			.customBackoff(backOff)
+			.build();
+	}
+
+	@Bean
+	public RetryTemplate depositLockRetryTemplate () {
+		SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy(
+			props.maxAttempts(),
+			Map.of(
+				OptimisticLockException.class, true,
+				OptimisticLockingFailureException.class, true,
+				TransientDataAccessException.class, true
+			),
+			/* traverseCauses= */ true,
+			/* defaultValue= */ false
+		);
+
+		ExponentialRandomBackOffPolicy backOff = new ExponentialRandomBackOffPolicy();
+		backOff.setInitialInterval(props.baseDelayMs());
+		backOff.setMultiplier(props.multiplier());
+		backOff.setMaxInterval(props.maxDelayMs());
 
 		return RetryTemplate.builder()
 			.customPolicy(retryPolicy)

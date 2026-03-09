@@ -17,7 +17,7 @@ public class AccountMetrics {
 
 	private static final String ACCOUNTS_OPENED = "banking.accounts.opened.total";
 	private static final String STATUS_TRANSITIONS = "banking.accounts.status.transitions.total";
-	private static final String LOCK_RETRIES = "banking.accounts.lock.retries.total";  // NEW (TODO 5)
+	private static final String LOCK_RETRIES = "banking.accounts.lock.retries.total";
 	private static final String OPEN_DURATION = "banking.accounts.open.duration.seconds";
 	private static final String TRANSITION_DURATION = "banking.accounts.transition.duration.seconds";
 	private static final String TRANSITION_DB_DURATION = "banking.accounts.transition.db.duration.seconds";

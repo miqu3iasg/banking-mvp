@@ -66,7 +66,7 @@ public class IdempotencyService {
 	private void persistKey (String key, String operationType, String responseBody) {
 
 		try {
-			IdempotencyKey record = IdempotencyKey.create(key, operationType, responseBody, clock);
+			IdempotencyKey record = IdempotencyKey.create(key, operationType, responseBody, IdempotencyKeyStatus.COMPLETED, clock);
 
 			repository.save(record);
 

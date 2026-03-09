@@ -2,6 +2,8 @@ package com.miqu3iasg.banking.shared.audit;
 
 import jakarta.persistence.*;
 import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -38,9 +40,11 @@ public class AuditLog {
 	@Column(name = "description", length = 500)
 	private String description;
 
+	@JdbcTypeCode(SqlTypes.JSON)
 	@Column(name = "before_data", columnDefinition = "jsonb")
 	private String beforeData;
 
+	@JdbcTypeCode(SqlTypes.JSON)
 	@Column(name = "after_data", columnDefinition = "jsonb")
 	private String afterData;
 

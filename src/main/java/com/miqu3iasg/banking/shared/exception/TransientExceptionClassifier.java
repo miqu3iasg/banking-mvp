@@ -7,13 +7,13 @@ import org.springframework.dao.TransientDataAccessException;
 public class TransientExceptionClassifier {
 	private TransientExceptionClassifier () { }
 
-	public static boolean isRetryable(Throwable t) {
+	public static boolean isRetryable (Throwable t) {
 		return t instanceof OptimisticLockException
 			|| t instanceof TransientDataAccessException
 			|| t instanceof PixAuthenticationException;
 	}
 
-	public static boolean isNonRetryable(Throwable t) {
+	public static boolean isNonRetryable (Throwable t) {
 		return !isRetryable(t);
 	}
 }
