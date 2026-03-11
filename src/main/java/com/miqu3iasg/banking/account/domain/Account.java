@@ -93,7 +93,6 @@ public class Account extends AuditableEntity {
 		this.status = AccountStatus.BLOCKED;
 	}
 
-
 	public void unblock () {
 		requireBlocked();
 		this.status = AccountStatus.ACTIVE;
@@ -104,6 +103,14 @@ public class Account extends AuditableEntity {
 		requireZeroBalance();
 		this.status = AccountStatus.CLOSED;
 	}
+
+	// Just for testing
+/*
+	public void zeroBalance () {
+		requireActive();
+		this.balance = Money.zero(balance.currency());
+	}
+*/
 
 	public boolean isActive () {
 		return this.status == AccountStatus.ACTIVE;

@@ -13,6 +13,7 @@ import com.miqu3iasg.banking.pix.service.PixService;
 import com.miqu3iasg.banking.shared.idempotency.IdempotencyKeyRepository;
 import com.miqu3iasg.banking.transaction.repository.TransactionRepository;
 import com.miqu3iasg.banking.transaction.service.DepositService;
+import com.miqu3iasg.banking.transaction.service.WithdrawalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.cache.Cache;
@@ -28,7 +29,7 @@ import java.util.Objects;
 
 @Testcontainers
 @SpringBootTest(
-	classes  = BankingMvpApplication.class,
+	classes = BankingMvpApplication.class,
 	webEnvironment = SpringBootTest.WebEnvironment.NONE
 )
 @ActiveProfiles("integration-test")
@@ -54,6 +55,8 @@ public abstract class AbstractIntegrationTestSupport {
 	protected CacheManager cacheManager;
 	@Autowired
 	protected DepositService depositService;
+	@Autowired
+	protected WithdrawalService withdrawalService;
 	@Autowired
 	protected IdempotencyKeyRepository idempotencyKeyRepository;
 

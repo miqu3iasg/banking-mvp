@@ -91,4 +91,28 @@ public class RetryConfig {
 			.customBackoff(backOff)
 			.build();
 	}
+
+	@Bean
+	public RetryTemplate withdrawalLockRetryTemplate () {
+		SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy(
+			props.maxAttempts(),
+			Map.of(
+				OptimisticLockException.class, true,
+				OptimisticLockingFailureException.class, true,
+				TransientDataAccessException.class, true
+			),
+			/* traverseCauses= */ true,
+			/* defaultValue= */ false
+		);
+
+		ExponentialRandomBackOffPolicy backOff = new ExponentialRandomBackOffPolicy();
+		backOff.setInitialInterval(props.baseDelayMs());
+		backOff.setMultiplier(props.multiplier());
+		backOff.setMaxInterval(props.maxDelayMs());
+
+		return RetryTemplate.builder()
+			.customPolicy(retryPolicy)
+			.customBackoff(backOff)
+			.build();
+	}
 }

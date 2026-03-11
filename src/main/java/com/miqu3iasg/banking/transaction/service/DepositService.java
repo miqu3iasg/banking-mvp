@@ -13,7 +13,6 @@ import com.miqu3iasg.banking.transaction.api.dto.TransactionResponse;
 import com.miqu3iasg.banking.transaction.domain.Transaction;
 import com.miqu3iasg.banking.transaction.domain.TransactionType;
 import com.miqu3iasg.banking.transaction.repository.TransactionRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
@@ -32,7 +31,6 @@ import java.util.function.Supplier;
 @Service
 public class DepositService {
 	private static final String OPERATION_DEPOSIT = OperationType.DEPOSIT.name();
-	private static final int LOCK_RETRY_MAX_ATTEMPTS = 3;
 
 	private final AccountRepository accountRepository;
 	private final TransactionRepository transactionRepository;
@@ -50,7 +48,8 @@ public class DepositService {
 		TransactionMetrics metrics,
 		ApplicationEventPublisher eventPublisher,
 		TransactionTemplate transactionTemplate,
-		@Qualifier("depositLockRetryTemplate") RetryTemplate retryTemplate, RetryProperties props
+		@Qualifier("depositLockRetryTemplate") RetryTemplate retryTemplate,
+		RetryProperties props
 	) {
 		this.accountRepository = accountRepository;
 		this.transactionRepository = transactionRepository;

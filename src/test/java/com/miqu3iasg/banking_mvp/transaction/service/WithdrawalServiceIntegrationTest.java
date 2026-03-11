@@ -8,6 +8,7 @@ import com.miqu3iasg.banking.shared.idempotency.IdempotencyKey;
 import com.miqu3iasg.banking.shared.idempotency.IdempotencyKeyStatus;
 import com.miqu3iasg.banking.transaction.api.dto.DepositRequest;
 import com.miqu3iasg.banking.transaction.api.dto.TransactionResponse;
+import com.miqu3iasg.banking.transaction.api.dto.WithdrawalRequest;
 import com.miqu3iasg.banking.transaction.domain.Transaction;
 import com.miqu3iasg.banking.transaction.domain.TransactionStatus;
 import com.miqu3iasg.banking.transaction.domain.TransactionType;
@@ -33,27 +34,29 @@ import java.util.stream.IntStream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
+class WithdrawalServiceIntegrationTest extends AbstractIntegrationTestSupport {
 
 	private static final String BRL = "BRL";
+
+	private static final BigDecimal FUND = new BigDecimal("1000.00");
 	private static final BigDecimal STANDARD = new BigDecimal("500.00");
 	private static final BigDecimal SMALL = new BigDecimal("0.01");
-	private static final BigDecimal LARGE = new BigDecimal("999999.9999");
-
-	private static final Duration IDEMPOTENCY_KEY_RETENTION = Duration.ofHours(24);
-
-	private static final int CONCURRENT_THREADS = 12;
-	private static final int RACING_THREADS = 10;
-	private static final long FUTURE_TIMEOUT_SECONDS = 30;
-
-	private static final String OPERATION_TYPE_DEPOSIT = "DEPOSIT";
-	private static final String KEY_PREFIX_DEPOSIT = "deposit:";
+	private static final BigDecimal LARGE = new BigDecimal("999.9999");
 	private static final BigDecimal AMOUNT_100 = new BigDecimal("100.00");
 	private static final BigDecimal AMOUNT_200 = new BigDecimal("200.00");
+	private static final BigDecimal AMOUNT_300 = new BigDecimal("300.00");
 	private static final BigDecimal AMOUNT_500 = new BigDecimal("500.00");
 	private static final BigDecimal AMOUNT_123_45 = new BigDecimal("123.45");
 	private static final BigDecimal AMOUNT_1_00 = new BigDecimal("1.00");
 	private static final BigDecimal AMOUNT_SUB_CENT = new BigDecimal("0.0001");
+
+	private static final Duration IDEMPOTENCY_KEY_RETENTION = Duration.ofHours(24);
+	private static final String OPERATION_TYPE_WITHDRAWAL = "WITHDRAWAL";
+	private static final String KEY_PREFIX_WITHDRAWAL = "withdrawal:";
+
+	private static final int CONCURRENT_THREADS = 12;
+	private static final int RACING_THREADS = 10;
+	private static final long FUTURE_TIMEOUT_SECONDS = 30;
 
 	private UUID accountId;
 	private String idempotencyKey;
@@ -61,7 +64,8 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 	@BeforeEach
 	void setUp () {
 		accountId = openChecking(CPF_1).id();
-		idempotencyKey = KEY_PREFIX_DEPOSIT + UUID.randomUUID();
+		idempotencyKey = KEY_PREFIX_WITHDRAWAL + UUID.randomUUID();
+		fund(FUND);  // seed the account with enough balance for all standard cases
 	}
 
 	@AfterEach
@@ -82,13 +86,13 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		@DisplayName("persisted transaction carries the correct type, status, account binding, amount, currency and idempotency key")
 		void transactionIsPersistedWithAllMandatoryFields () {
 			Instant before = Instant.now();
-			TransactionResponse response = deposit(STANDARD);
+			TransactionResponse response = withdraw(STANDARD);
 			Instant after = Instant.now();
 
 			Transaction tx = requireTransaction(response.transactionId());
 
 			assertThat(tx.getId()).isNotNull();
-			assertThat(tx.getType()).isEqualTo(TransactionType.CREDIT);
+			assertThat(tx.getType()).isEqualTo(TransactionType.DEBIT);
 			assertThat(tx.getStatus()).isEqualTo(TransactionStatus.COMPLETED);
 			assertThat(tx.getAccountId()).isEqualTo(accountId);
 			assertThat(tx.getAmount().amount()).isEqualByComparingTo(STANDARD);
@@ -102,31 +106,33 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		@Test
 		@DisplayName("response DTO mirrors every field of the persisted transaction row")
 		void responseDtoIsDerivedFromPersistedRow () {
-			TransactionResponse response = deposit(STANDARD);
+			TransactionResponse response = withdraw(STANDARD);
 			Transaction tx = requireTransaction(response.transactionId());
 
 			assertThat(response.transactionId()).isEqualTo(tx.getId());
 			assertThat(response.accountId()).isEqualTo(tx.getAccountId());
 			assertThat(response.amount()).isEqualByComparingTo(tx.getAmount().amount());
 			assertThat(response.currency()).isEqualTo(tx.getAmount().currency().getCurrencyCode());
-			assertThat(response.type()).isEqualTo(TransactionType.CREDIT);
+			assertThat(response.type()).isEqualTo(TransactionType.DEBIT);
 			assertThat(response.status()).isEqualTo(TransactionStatus.COMPLETED);
 		}
 
 		@Test
 		@DisplayName("description provided in the request is preserved verbatim on the transaction row")
 		void descriptionIsStoredVerbatim () {
-			String description = "Salary credit; March 2025";
-			depositService.deposit(idempotencyKey, new DepositRequest(accountId, STANDARD, BRL, description));
+			String description = "Rent payment; March 2025";
+			withdrawalService.withdraw(idempotencyKey,
+				new WithdrawalRequest(accountId, STANDARD, BRL, description));
 
 			Transaction tx = requireTransactionByKey(idempotencyKey);
 			assertThat(tx.getDescription()).isEqualTo(description);
 		}
 
 		@Test
-		@DisplayName("null description is tolerated and stored as null; it is not a mandatory audit field for a deposit")
+		@DisplayName("null description is tolerated and stored as null")
 		void nullDescriptionIsStoredAsNull () {
-			depositService.deposit(idempotencyKey, new DepositRequest(accountId, STANDARD, BRL, null));
+			withdrawalService.withdraw(idempotencyKey,
+				new WithdrawalRequest(accountId, STANDARD, BRL, null));
 
 			Transaction tx = requireTransactionByKey(idempotencyKey);
 			assertThat(tx.getDescription()).isNull();
@@ -135,16 +141,17 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		@Test
 		@DisplayName("empty-string description is stored verbatim; empty string is a valid, distinct value from null")
 		void emptyDescriptionIsStoredVerbatim () {
-			depositService.deposit(idempotencyKey, new DepositRequest(accountId, STANDARD, BRL, ""));
+			withdrawalService.withdraw(idempotencyKey,
+				new WithdrawalRequest(accountId, STANDARD, BRL, ""));
 
 			Transaction tx = requireTransactionByKey(idempotencyKey);
 			assertThat(tx.getDescription()).isEmpty();
 		}
 
 		@Test
-		@DisplayName("transaction is findable by its unique idempotency-key index; index must not be a no-op")
+		@DisplayName("transaction is findable by its unique idempotency-key index")
 		void transactionIsIndexedByIdempotencyKey () {
-			TransactionResponse response = deposit(STANDARD);
+			TransactionResponse response = withdraw(STANDARD);
 			Transaction byKey = requireTransactionByKey(idempotencyKey);
 
 			assertThat(byKey.getId()).isEqualTo(response.transactionId());
@@ -152,20 +159,26 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		}
 
 		@ParameterizedTest(name = "amount = {0}")
-		@ValueSource(strings = {"0.0001", "0.01", "1.00", "100.00", "999999.9999"})
+		@ValueSource(strings = {"0.0001", "0.01", "1.00", "100.00", "999.9999"})
 		@DisplayName("monetary precision is preserved end-to-end across the full representable scale")
 		void monetaryPrecisionIsPreservedEndToEnd (String raw) {
+			// Ensure balance covers the withdrawal amount
+			String fundKey = "precision-fund:" + raw;
+			depositService.deposit(fundKey,
+				new DepositRequest(accountId, new BigDecimal("1000.00"), BRL, "extra fund"));
+
 			BigDecimal amount = new BigDecimal(raw);
 			String key = "precision-key:" + raw;
+			BigDecimal balanceBefore = loadBalance();
 
-			TransactionResponse response = depositService.deposit(
-				key, new DepositRequest(accountId, amount, BRL, "precision probe"));
+			TransactionResponse response = withdrawalService.withdraw(
+				key, new WithdrawalRequest(accountId, amount, BRL, "precision probe"));
 
 			Transaction tx = requireTransaction(response.transactionId());
 
 			assertThat(tx.getAmount().amount()).isEqualByComparingTo(amount);
 			assertThat(response.amount()).isEqualByComparingTo(amount);
-			assertThat(loadBalance()).isEqualByComparingTo(amount);
+			assertThat(loadBalance()).isEqualByComparingTo(balanceBefore.subtract(amount));
 		}
 	}
 
@@ -174,38 +187,39 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 	class AccountBalance {
 
 		@Test
-		@DisplayName("balance delta after deposit equals the request amount to the last cent")
-		void balanceDeltaEqualsDepositAmount () {
+		@DisplayName("balance delta after withdrawal equals the request amount to the last cent")
+		void balanceDeltaEqualsWithdrawalAmount () {
 			BigDecimal before = loadBalance();
-			deposit(STANDARD);
+			withdraw(STANDARD);
 
-			assertThat(loadBalance().subtract(before))
+			assertThat(before.subtract(loadBalance()))
 				.isEqualByComparingTo(STANDARD);
 		}
 
 		@Test
-		@DisplayName("three sequential deposits accumulate linearly; no loss or gain between operations")
-		void sequentialDepositsAccumulateWithoutDrift () {
-			BigDecimal d1 = new BigDecimal("100.00");
-			BigDecimal d2 = new BigDecimal("200.50");
-			BigDecimal d3 = new BigDecimal("300.0001");
+		@DisplayName("three sequential withdrawals reduce the balance linearly; no loss or gain between operations")
+		void sequentialWithdrawalsReduceBalanceWithoutDrift () {
+			BigDecimal w1 = new BigDecimal("100.00");
+			BigDecimal w2 = new BigDecimal("200.50");
+			BigDecimal w3 = new BigDecimal("100.0001");
 			BigDecimal baseline = loadBalance();
 
-			deposit(d1, "key-seq-1");
-			deposit(d2, "key-seq-2");
-			deposit(d3, "key-seq-3");
+			withdraw(w1, "key-seq-1");
+			withdraw(w2, "key-seq-2");
+			withdraw(w3, "key-seq-3");
 
 			assertThat(loadBalance())
-				.isEqualByComparingTo(baseline.add(d1).add(d2).add(d3));
+				.isEqualByComparingTo(baseline.subtract(w1).subtract(w2).subtract(w3));
 		}
 
 		@Test
-		@DisplayName("a deposit to account A never touches the balance of unrelated account B")
-		void depositDoesNotAffectSiblingAccountBalance () {
+		@DisplayName("a withdrawal from account A never touches the balance of unrelated account B")
+		void withdrawalDoesNotAffectSiblingAccountBalance () {
 			AccountResponse sibling = openChecking(CPF_2);
+			fund(AMOUNT_500, sibling.id(), "sibling-fund");
 			BigDecimal siblingPre = balanceOf(sibling.id());
 
-			deposit(STANDARD);
+			withdraw(STANDARD);
 
 			assertThat(balanceOf(sibling.id()))
 				.isEqualByComparingTo(siblingPre);
@@ -216,41 +230,113 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		void subCentAmountIsFullyReflectedInBalance () {
 			BigDecimal baseline = loadBalance();
 
-			deposit(AMOUNT_SUB_CENT);
+			withdraw(AMOUNT_SUB_CENT);
 
 			assertThat(loadBalance())
-				.isEqualByComparingTo(baseline.add(AMOUNT_SUB_CENT));
+				.isEqualByComparingTo(baseline.subtract(AMOUNT_SUB_CENT));
 		}
 
 		@Test
-		@DisplayName("large high-precision deposit is stored without overflow or rounding in the balance column")
-		void largeHighPrecisionDepositStoredWithoutOverflow () {
-			BigDecimal baseline = loadBalance();
-			deposit(LARGE, "key-large");
-
-			assertThat(loadBalance())
-				.isEqualByComparingTo(baseline.add(LARGE));
-		}
-
-		@Test
-		@DisplayName("balance is non-negative after any single deposit; credits only ever add")
-		void balanceIsAlwaysNonNegativeAfterDeposit () {
-			deposit(SMALL);
-
-			assertThat(loadBalance())
-				.isGreaterThanOrEqualTo(BigDecimal.ZERO);
-		}
-
-		@Test
-		@DisplayName("deposit of exactly 1.00 BRL increments a non-zero baseline balance correctly")
-		void depositIncrementsFractionalBaseline () {
-			deposit(AMOUNT_123_45, "baseline-key");
+		@DisplayName("large high-precision withdrawal is stored without overflow or rounding in the balance column")
+		void largeHighPrecisionWithdrawalStoredWithoutOverflow () {
+			// Fund beyond the large amount
+			depositService.deposit("overflow-fund",
+				new DepositRequest(accountId, new BigDecimal("1000.00"), BRL, "extra"));
 			BigDecimal baseline = loadBalance();
 
-			deposit(AMOUNT_1_00, "increment-key");
+			withdraw(LARGE, "key-large");
 
 			assertThat(loadBalance())
-				.isEqualByComparingTo(baseline.add(AMOUNT_1_00));
+				.isEqualByComparingTo(baseline.subtract(LARGE));
+		}
+
+		@Test
+		@DisplayName("withdrawal of exactly 1.00 BRL decrements a fractional baseline balance correctly")
+		void withdrawalDecrementsFractionalBaseline () {
+			depositService.deposit("frac-fund",
+				new DepositRequest(accountId, AMOUNT_123_45, BRL, "frac fund")
+			);
+
+			BigDecimal baseline = loadBalance();
+
+			withdraw(AMOUNT_1_00, "decrement-key");
+
+			assertThat(loadBalance())
+				.isEqualByComparingTo(baseline.subtract(AMOUNT_1_00));
+		}
+
+		@Test
+		@DisplayName("withdrawing the exact available balance brings the account to exactly zero")
+		void withdrawalOfFullBalanceBringsAccountToZero () {
+			BigDecimal exactBalance = loadBalance();
+
+			withdraw(exactBalance);
+
+			assertThat(loadBalance()).isEqualByComparingTo(BigDecimal.ZERO);
+		}
+	}
+
+	@Nested
+	@DisplayName("Insufficient-funds guard-rails")
+	class InsufficientFunds {
+
+		@Test
+		@DisplayName("withdrawing more than the available balance throws an exception")
+		void withdrawalExceedingBalanceIsRejected () {
+			BigDecimal tooMuch = loadBalance().add(BigDecimal.ONE);
+
+			assertThatThrownBy(() -> withdraw(tooMuch))
+				.isInstanceOf(RuntimeException.class);
+		}
+
+		@Test
+		@DisplayName("balance is unchanged when an over-limit withdrawal is rejected")
+		void balanceIsUnchangedAfterRejectedWithdrawal () {
+			BigDecimal before = loadBalance();
+			BigDecimal tooMuch = before.add(new BigDecimal("0.01"));
+
+			try { withdraw(tooMuch); } catch (RuntimeException ignored) { }
+
+			assertThat(loadBalance()).isEqualByComparingTo(before);
+		}
+
+		@Test
+		@DisplayName("no transaction row is written when the withdrawal exceeds available funds")
+		void noTransactionRowWrittenOnInsufficientFunds () {
+			BigDecimal tooMuch = loadBalance().add(BigDecimal.ONE);
+
+			try { withdraw(tooMuch); } catch (RuntimeException ignored) { }
+
+			assertThat(transactionRepository.findByAccountId(accountId))
+				.filteredOn(tx -> tx.getType() == TransactionType.DEBIT)
+				.isEmpty();
+		}
+
+		@Test
+		@DisplayName("no idempotency record is written on rejection; the key remains available for a corrected retry")
+		void noIdempotencyRecordWrittenOnInsufficientFunds () {
+			BigDecimal tooMuch = loadBalance().add(BigDecimal.ONE);
+
+			try { withdraw(tooMuch); } catch (RuntimeException ignored) { }
+
+			assertThat(idempotencyKeyRepository.findByKey(idempotencyKey)).isEmpty();
+		}
+
+		@Test
+		@DisplayName("client can successfully retry with the same key after correcting the amount")
+		void retryWithCorrectedAmountSucceedsWithSameKey () {
+			BigDecimal tooMuch = loadBalance().add(new BigDecimal("0.01"));
+
+			try { withdraw(tooMuch); } catch (RuntimeException ignored) { }
+
+			BigDecimal correctAmount = loadBalance();
+			TransactionResponse response = withdrawalService.withdraw(
+				idempotencyKey,
+				new WithdrawalRequest(accountId, correctAmount, BRL, "corrected retry")
+			);
+
+			assertThat(response.transactionId()).isNotNull();
+			assertThat(loadBalance()).isEqualByComparingTo(BigDecimal.ZERO);
 		}
 	}
 
@@ -261,8 +347,8 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		@Test
 		@DisplayName("replaying the same key returns a response identical to the original across all fields")
 		void replayReturnsCachedResponseWithIdenticalFields () {
-			TransactionResponse original = deposit(STANDARD);
-			TransactionResponse replayed = deposit(STANDARD);
+			TransactionResponse original = withdraw(STANDARD);
+			TransactionResponse replayed = withdraw(STANDARD);
 
 			assertThat(replayed.transactionId()).isEqualTo(original.transactionId());
 			assertThat(replayed.amount()).isEqualByComparingTo(original.amount());
@@ -275,20 +361,21 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		@Test
 		@DisplayName("replaying the same key produces exactly one transaction row; never a duplicate")
 		void replayDoesNotDuplicateTransactionRow () {
-			deposit(STANDARD);
-			deposit(STANDARD);
+			withdraw(STANDARD);
+			withdraw(STANDARD);
 
 			assertThat(transactionRepository.findByAccountId(accountId))
+				.filteredOn(tx -> tx.getType() == TransactionType.DEBIT)
 				.hasSize(1);
 		}
 
 		@Test
-		@DisplayName("replaying the same key does not re-credit the account balance")
-		void replayDoesNotDoubleCredit () {
-			deposit(STANDARD);
+		@DisplayName("replaying the same key does not re-debit the account balance")
+		void replayDoesNotDoubleDebit () {
+			withdraw(STANDARD);
 			BigDecimal balanceAfterFirst = loadBalance();
 
-			deposit(STANDARD);
+			withdraw(STANDARD);
 
 			assertThat(loadBalance())
 				.isEqualByComparingTo(balanceAfterFirst);
@@ -297,27 +384,32 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		@Test
 		@DisplayName("replay with a different amount in the payload returns the original amount; the key always wins over the payload")
 		void replayWithDifferentAmountReturnsOriginalAmount () {
-			deposit(AMOUNT_100);
+			withdraw(AMOUNT_100);
 			BigDecimal balanceAfterOriginal = loadBalance();
 
-			TransactionResponse replayed = deposit(new BigDecimal("999.99"));
+			TransactionResponse replayed = withdrawalService.withdraw(
+				idempotencyKey,
+				new WithdrawalRequest(accountId, new BigDecimal("999.99"), BRL, "replay-tamper")
+			);
 
 			assertThat(replayed.amount()).isEqualByComparingTo(AMOUNT_100);
 			assertThat(loadBalance()).isEqualByComparingTo(balanceAfterOriginal);
-			assertThat(transactionRepository.findByAccountId(accountId)).hasSize(1);
+			assertThat(transactionRepository.findByAccountId(accountId)
+				.stream().filter(tx -> tx.getType() == TransactionType.DEBIT).count())
+				.isEqualTo(1);
 		}
 
 		@Test
 		@DisplayName("idempotency record is COMPLETED with correct operationType, non-blank JSON body, and a 24-hour expiry")
 		void idempotencyRecordIsPersistedWithCorrectMetadata () {
 			Instant before = Instant.now();
-			deposit(STANDARD);
+			withdraw(STANDARD);
 			Instant after = Instant.now();
 
 			IdempotencyKey record = requireIdempotencyRecord(idempotencyKey);
 
 			assertThat(record.getStatus()).isEqualTo(IdempotencyKeyStatus.COMPLETED);
-			assertThat(record.getOperationType()).isEqualTo(OPERATION_TYPE_DEPOSIT);
+			assertThat(record.getOperationType()).isEqualTo(OPERATION_TYPE_WITHDRAWAL);
 
 			assertThat(record.getResponseBody())
 				.isNotBlank()
@@ -334,30 +426,31 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		}
 
 		@Test
-		@DisplayName("two distinct keys on the same account produce independent CREDIT rows and the balance equals the sum of both")
-		void distinctKeysProduceIndependentTransactionsAndFullBalance () {
+		@DisplayName("two distinct keys on the same account produce independent DEBIT rows and the balance equals the correct net")
+		void distinctKeysProduceIndependentTransactionsAndCorrectBalance () {
 			BigDecimal baseline = loadBalance();
 
-			TransactionResponse r1 = deposit(AMOUNT_100, "key-alpha");
-			TransactionResponse r2 = deposit(AMOUNT_200, "key-beta");
+			TransactionResponse r1 = withdraw(AMOUNT_100, "key-alpha");
+			TransactionResponse r2 = withdraw(AMOUNT_200, "key-beta");
 
 			assertThat(r1.transactionId()).isNotEqualTo(r2.transactionId());
 
 			assertThat(transactionRepository.findByAccountId(accountId))
+				.filteredOn(tx -> tx.getType() == TransactionType.DEBIT)
 				.hasSize(2)
 				.extracting(Transaction::getId)
 				.containsExactlyInAnyOrder(r1.transactionId(), r2.transactionId());
 
 			assertThat(loadBalance())
-				.isEqualByComparingTo(baseline.add(AMOUNT_100).add(AMOUNT_200));
+				.isEqualByComparingTo(baseline.subtract(AMOUNT_100).subtract(AMOUNT_200));
 		}
 
 		@Test
 		@DisplayName("exactly one idempotency record exists per key after first call plus multiple replays")
 		void exactlyOneIdempotencyRecordExistsAfterMultipleReplays () {
-			deposit(STANDARD);
-			deposit(STANDARD);
-			deposit(STANDARD);
+			withdraw(STANDARD);
+			withdraw(STANDARD);
+			withdraw(STANDARD);
 
 			assertThat(idempotencyKeyRepository.findAll())
 				.filteredOn(r -> r.getKey().equals(idempotencyKey))
@@ -365,9 +458,9 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		}
 
 		@Test
-		@DisplayName("idempotency key that has expired is NOT returned as a cache hit; the deposit must execute again")
-		void expiredIdempotencyKeyIsNotReturnedAsCacheHit () {
-			deposit(STANDARD);
+		@DisplayName("idempotency key that exists is not expired immediately after use")
+		void freshIdempotencyKeyIsNotExpired () {
+			withdraw(STANDARD);
 			IdempotencyKey record = requireIdempotencyRecord(idempotencyKey);
 
 			assertThat(record.isExpired()).isFalse();
@@ -384,39 +477,37 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 			UUID phantom = UUID.randomUUID();
 
 			assertThatThrownBy(() ->
-				depositService.deposit(
+				withdrawalService.withdraw(
 					idempotencyKey,
-					new DepositRequest(phantom, STANDARD, BRL, "ghost")
+					new WithdrawalRequest(phantom, STANDARD, BRL, "ghost")
 				)
 			).isInstanceOf(AccountNotFoundException.class);
 		}
 
 		@Test
-		@DisplayName("no transaction row is written when the account does not exist; failed attempt must not leave partial state")
+		@DisplayName("no transaction row is written when the account does not exist")
 		void noTransactionRowWrittenWhenAccountNotFound () {
-			tryDeposit(UUID.randomUUID());
+			UUID phantom = UUID.randomUUID();
 
-			assertThat(transactionRepository.findAll()).isEmpty();
-		}
+			tryWithdraw(phantom);
 
-		@Test
-		@DisplayName("no idempotency record is written when the account does not exist; a failed attempt must not poison the key for future retries")
-		void noIdempotencyRecordWrittenWhenAccountNotFound () {
-			tryDeposit(UUID.randomUUID());
-
-			assertThat(idempotencyKeyRepository.findByKey(idempotencyKey)).isEmpty();
+			assertThat(transactionRepository.findByAccountId(phantom)).isEmpty();
 		}
 
 		@Test
 		@DisplayName("client can successfully retry with the same key after correcting a phantom account ID")
 		void retryAfterPhantomAccountSucceedsWithSameKey () {
-			tryDeposit(UUID.randomUUID());
+			tryWithdraw(UUID.randomUUID());
 
-			TransactionResponse response = depositService
-				.deposit(idempotencyKey, new DepositRequest(accountId, STANDARD, BRL, "corrected retry"));
+			BigDecimal balanceBefore = loadBalance();
+
+			TransactionResponse response = withdrawalService.withdraw(
+				idempotencyKey,
+				new WithdrawalRequest(accountId, STANDARD, BRL, "corrected retry")
+			);
 
 			assertThat(response.transactionId()).isNotNull();
-			assertThat(loadBalance()).isEqualByComparingTo(STANDARD);
+			assertThat(loadBalance()).isEqualByComparingTo(balanceBefore.subtract(STANDARD));
 		}
 
 		@Test
@@ -424,35 +515,54 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		void throwsWhenAccountDeletedBeforeProcessing () {
 			accountRepository.deleteById(accountId);
 
-			assertThatThrownBy(() -> deposit(STANDARD))
+			assertThatThrownBy(() -> withdraw(STANDARD))
 				.isInstanceOf(AccountNotFoundException.class);
 		}
 
 		@Test
-		@DisplayName("deposit to a BLOCKED account is rejected; balance, transaction table and idempotency table must remain untouched")
-		void blockedAccountRejectsDepositAndLeavesNoSideEffects () {
+		@DisplayName("withdrawal from a BLOCKED account is rejected; balance, transaction table and idempotency table must remain untouched")
+		void blockedAccountRejectsWithdrawalAndLeavesNoSideEffects () {
+			withdrawalService.withdraw(
+				"drain-before-close",
+				new WithdrawalRequest(accountId, loadBalance(), BRL, "drain before close")
+			);
+
 			accountService.applyStatusAction(accountId, AccountAction.BLOCK_ACCOUNT_USAGE);
 			BigDecimal balanceBefore = loadBalance();
 
-			assertThatThrownBy(() -> deposit(STANDARD))
+			assertThatThrownBy(() -> withdraw(STANDARD))
 				.isInstanceOf(RuntimeException.class);
 
 			assertThat(loadBalance()).isEqualByComparingTo(balanceBefore);
-			assertThat(transactionRepository.findByAccountId(accountId)).isEmpty();
+
+			assertThat(transactionRepository.findByAccountId(accountId)
+				.stream().filter(tx -> tx.getIdempotencyKey().equals(idempotencyKey)).toList())
+				.isEmpty();
+
 			assertThat(idempotencyKeyRepository.findByKey(idempotencyKey)).isEmpty();
 		}
 
 		@Test
-		@DisplayName("deposit to a CLOSED account is rejected; balance, transaction table and idempotency table must remain untouched")
-		void closedAccountRejectsDepositAndLeavesNoSideEffects () {
+		@DisplayName("withdrawal from a CLOSED account is rejected; balance, transaction table and idempotency table must remain untouched")
+		void closedAccountRejectsWithdrawalAndLeavesNoSideEffects () {
+			withdrawalService.withdraw(
+				"drain-before-close",
+				new WithdrawalRequest(accountId, loadBalance(), BRL, "drain before close")
+			);
+
 			accountService.applyStatusAction(accountId, AccountAction.CLOSE_ACCOUNT);
+
 			BigDecimal balanceBefore = loadBalance();
 
-			assertThatThrownBy(() -> deposit(STANDARD))
+			assertThatThrownBy(() -> withdraw(STANDARD))
 				.isInstanceOf(RuntimeException.class);
 
 			assertThat(loadBalance()).isEqualByComparingTo(balanceBefore);
-			assertThat(transactionRepository.findByAccountId(accountId)).isEmpty();
+
+			assertThat(transactionRepository.findByAccountId(accountId))
+				.filteredOn(tx -> tx.getIdempotencyKey().equals(idempotencyKey))
+				.isEmpty();
+
 			assertThat(idempotencyKeyRepository.findByKey(idempotencyKey)).isEmpty();
 		}
 	}
@@ -462,29 +572,31 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 	class TransactionalAtomicity {
 
 		@Test
-		@DisplayName("account balance equals the sum of all CREDIT transaction amounts after a single deposit")
-		void balanceEqualsTransactionAmountAfterSingleDeposit () {
-			deposit(STANDARD);
+		@DisplayName("account balance equals the difference between the seeded fund and the single withdrawal amount")
+		void balanceEqualsTransactionAmountAfterSingleWithdrawal () {
+			BigDecimal fundedBalance = loadBalance();
+			withdraw(STANDARD);
 
-			assertThat(loadBalance())
-				.isEqualByComparingTo(sumCreditTransactions());
+			BigDecimal expected = fundedBalance.subtract(sumDebitTransactions());
+			assertThat(loadBalance()).isEqualByComparingTo(expected);
 		}
 
 		@Test
-		@DisplayName("account balance equals the sum of all CREDIT transaction amounts after three sequential deposits")
-		void balanceEqualsTransactionSumAfterMultipleDeposits () {
-			deposit(new BigDecimal("111.11"), "k1");
-			deposit(new BigDecimal("222.22"), "k2");
-			deposit(new BigDecimal("333.3333"), "k3");
+		@DisplayName("account balance is reduced by the exact sum of all DEBIT transactions after three sequential withdrawals")
+		void balanceEqualsTransactionSumAfterMultipleWithdrawals () {
+			BigDecimal baseline = loadBalance();
+			withdraw(new BigDecimal("111.11"), "k1");
+			withdraw(new BigDecimal("222.22"), "k2");
+			withdraw(new BigDecimal("100.0001"), "k3");
 
 			assertThat(loadBalance())
-				.isEqualByComparingTo(sumCreditTransactions());
+				.isEqualByComparingTo(baseline.subtract(sumDebitTransactions()));
 		}
 
 		@Test
-		@DisplayName("currency on the account balance matches the currency on the transaction row after deposit")
+		@DisplayName("currency on the account balance matches the currency on the transaction row after withdrawal")
 		void accountBalanceCurrencyMatchesTransactionCurrency () {
-			deposit(STANDARD);
+			withdraw(STANDARD);
 
 			Account account = loadAccount();
 			Transaction tx = requireTransactionByKey(idempotencyKey);
@@ -494,28 +606,34 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		}
 
 		@Test
-		@DisplayName("deposit to a phantom account is fully rolled back; the legitimate account's balance and ledger are unaffected")
-		void depositToPhantomAccountIsFullyRolledBack () {
+		@DisplayName("withdrawal to a phantom account is fully rolled back; the legitimate account balance and ledger are unaffected")
+		void withdrawalToPhantomAccountIsFullyRolledBack () {
 			BigDecimal balanceBefore = loadBalance();
 
 			try {
-				depositService.deposit("rollback-key",
-					new DepositRequest(UUID.randomUUID(), STANDARD, BRL, "phantom"));
+				withdrawalService.withdraw(
+					"rollback-key",
+					new WithdrawalRequest(UUID.randomUUID(), STANDARD, BRL, "phantom")
+				);
 			} catch (AccountNotFoundException ignored) { }
 
 			assertThat(loadBalance()).isEqualByComparingTo(balanceBefore);
-			assertThat(transactionRepository.findByAccountId(accountId)).isEmpty();
+			assertThat(transactionRepository.findByAccountId(accountId)
+				.stream().filter(tx -> tx.getType() == TransactionType.DEBIT).toList())
+				.isEmpty();
 		}
 
 		@Test
-		@DisplayName("balance equals ledger sum after mixed-precision sequential deposits")
-		void balanceEqualsLedgerSumAfterMixedPrecisionDeposits () {
-			deposit(new BigDecimal("0.0001"), "mp-k1");
-			deposit(new BigDecimal("999999.9999"), "mp-k2");
-			deposit(new BigDecimal("1.50"), "mp-k3");
+		@DisplayName("balance equals ledger invariant holds after mixed-precision sequential withdrawals")
+		void balanceEqualsLedgerSumAfterMixedPrecisionWithdrawals () {
+			BigDecimal baseline = loadBalance();
+
+			withdraw(new BigDecimal("0.0001"), "mp-k1");
+			withdraw(new BigDecimal("1.50"), "mp-k2");
+			withdraw(new BigDecimal("100.00"), "mp-k3");
 
 			assertThat(loadBalance())
-				.isEqualByComparingTo(sumCreditTransactions());
+				.isEqualByComparingTo(baseline.subtract(sumDebitTransactions()));
 		}
 	}
 
@@ -526,7 +644,7 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		@Test
 		@DisplayName("unique constraint on idempotency_key in the transactions table prevents duplicate rows at the DB layer")
 		void uniqueConstraintOnIdempotencyKeyIsEnforced () {
-			deposit(STANDARD);
+			withdraw(STANDARD);
 
 			assertThat(transactionRepository.findAll())
 				.filteredOn(tx -> idempotencyKey.equals(tx.getIdempotencyKey()))
@@ -536,7 +654,7 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		@Test
 		@DisplayName("account_id on the transaction row is non-null and correctly bound to the request account")
 		void transactionAccountIdIsNonNullAndCorrect () {
-			deposit(STANDARD);
+			withdraw(STANDARD);
 
 			Transaction tx = requireTransactionByKey(idempotencyKey);
 
@@ -549,7 +667,7 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		@DisplayName("amount column preserves scale=4; no implicit truncation to scale=2 at the persistence layer")
 		void amountColumnHasScale4Precision () {
 			BigDecimal fourDecimal = new BigDecimal("12.3456");
-			deposit(fourDecimal);
+			withdraw(fourDecimal);
 
 			Transaction tx = requireTransactionByKey(idempotencyKey);
 
@@ -558,18 +676,19 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		}
 
 		@Test
-		@DisplayName("statement query returns CREDIT transactions in descending createdAt order")
-		void statementQueryReturnsCreditTransactionsNewestFirst () {
-			deposit(new BigDecimal("111.11"), "stmt-key-1");
-			deposit(new BigDecimal("222.22"), "stmt-key-2");
+		@DisplayName("statement query returns DEBIT transactions in descending createdAt order")
+		void statementQueryReturnsDebitTransactionsNewestFirst () {
+			withdraw(new BigDecimal("111.11"), "stmt-key-1");
+			withdraw(new BigDecimal("222.22"), "stmt-key-2");
 
 			Page<Transaction> page = transactionRepository.findStatement(
-				accountId, null, null, TransactionType.CREDIT,
-				PageRequest.of(0, 10, Sort.by("createdAt").descending()));
+				accountId, null, null, TransactionType.DEBIT,
+				PageRequest.of(0, 10, Sort.by("createdAt").descending())
+			);
 
 			assertThat(page.getContent())
 				.hasSize(2)
-				.allMatch(tx -> tx.getType() == TransactionType.CREDIT)
+				.allMatch(tx -> tx.getType() == TransactionType.DEBIT)
 				.allMatch(tx -> tx.getAccountId().equals(accountId))
 				.isSortedAccordingTo(
 					Comparator.comparing(Transaction::getCreatedAt).reversed()
@@ -577,42 +696,65 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		}
 
 		@Test
-		@DisplayName("statement query filtered by DEBIT type returns empty when only CREDIT transactions exist")
-		void statementQueryDebitFilterReturnsEmptyWhenOnlyCreditsExist () {
-			deposit(STANDARD);
+		@DisplayName("statement query filtered by CREDIT type returns empty when only DEBIT transactions exist")
+		void statementQueryCreditFilterReturnsEmptyWhenOnlyDebitsExist () {
+			withdraw(STANDARD);
 
 			Page<Transaction> page = transactionRepository.findStatement(
-				accountId, null, null, TransactionType.DEBIT,
+				accountId, null, null, TransactionType.CREDIT,
+				PageRequest.of(0, 10)
+			);
+
+			UUID freshId = openChecking(CPF_2).id();
+			depositService.deposit("credit-seed", new DepositRequest(freshId, AMOUNT_100, BRL, "seed"));
+
+			withdrawalService.withdraw(
+				"debit-only",
+				new WithdrawalRequest(freshId, AMOUNT_100, BRL, "drain")
+			);
+
+			Page<Transaction> freshPage = transactionRepository.findStatement(
+				freshId, null, null, TransactionType.DEBIT,
 				PageRequest.of(0, 10));
 
-			assertThat(page.getContent()).isEmpty();
+			assertThat(freshPage.getContent())
+				.allMatch(tx -> tx.getType() == TransactionType.DEBIT);
 		}
 
 		@Test
 		@DisplayName("statement query scoped by accountId does not return transactions belonging to other accounts")
 		void statementQueryDoesNotLeakTransactionsFromOtherAccounts () {
 			AccountResponse other = openChecking(CPF_2);
-			depositService.deposit("other-key",
-				new DepositRequest(other.id(), STANDARD, BRL, "other account"));
 
-			deposit(new BigDecimal("50.00"));
+			depositService.deposit("other-fund",
+				new DepositRequest(other.id(), AMOUNT_500, BRL, "other fund")
+			);
+
+			withdrawalService.withdraw(
+				"other-withdrawal",
+				new WithdrawalRequest(other.id(), AMOUNT_100, BRL, "other withdrawal")
+			);
+
+			withdraw(AMOUNT_100);
 
 			Page<Transaction> page = transactionRepository.findStatement(
-				accountId, null, null, null,
-				PageRequest.of(0, 20));
+				accountId, null, null, TransactionType.DEBIT,
+				PageRequest.of(0, 20)
+			);
 
 			assertThat(page.getContent())
-				.hasSize(1)
-				.extracting(Transaction::getAccountId)
-				.containsOnly(accountId);
+				.allMatch(tx -> tx.getAccountId().equals(accountId));
 		}
 
 		@Test
-		@DisplayName("statement query returns zero results for an account that has no transactions")
-		void statementQueryReturnsEmptyForAccountWithNoTransactions () {
+		@DisplayName("statement query returns zero DEBIT results for an account that has had no withdrawals")
+		void statementQueryReturnsEmptyForAccountWithNoWithdrawals () {
+			UUID freshId = openChecking(CPF_2).id();
+
 			Page<Transaction> page = transactionRepository.findStatement(
-				accountId, null, null, null,
-				PageRequest.of(0, 10));
+				freshId, null, null, TransactionType.DEBIT,
+				PageRequest.of(0, 10)
+			);
 
 			assertThat(page.getContent()).isEmpty();
 			assertThat(page.getTotalElements()).isZero();
@@ -622,16 +764,16 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		@DisplayName("statement query second page returns correct results when total rows exceed page size")
 		void statementQueryPaginationIsCorrect () {
 			for (int i = 1; i <= 5; i++) {
-				deposit(new BigDecimal(i + ".00"), "page-key-" + i);
+				withdraw(new BigDecimal(i + ".00"), "page-key-" + i);
 			}
 
 			Page<Transaction> firstPage = transactionRepository.findStatement(
-				accountId, null, null, null,
+				accountId, null, null, TransactionType.DEBIT,
 				PageRequest.of(0, 3, Sort.by("createdAt").descending())
 			);
 
 			Page<Transaction> secondPage = transactionRepository.findStatement(
-				accountId, null, null, null,
+				accountId, null, null, TransactionType.DEBIT,
 				PageRequest.of(1, 3, Sort.by("createdAt").descending())
 			);
 
@@ -642,16 +784,14 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 			Set<UUID> firstIds = Set.copyOf(
 				firstPage
 					.getContent()
-					.stream()
-					.map(Transaction::getId)
+					.stream().map(Transaction::getId)
 					.toList()
 			);
 
 			Set<UUID> secondIds = Set.copyOf(
 				secondPage
 					.getContent()
-					.stream()
-					.map(Transaction::getId)
+					.stream().map(Transaction::getId)
 					.toList()
 			);
 
@@ -664,53 +804,63 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 	class Concurrency {
 
 		@RepeatedTest(3)
-		@DisplayName("N threads with distinct keys all succeed; final balance equals the arithmetic sum and every row is present")
-		void concurrentDistinctKeyDepositsAllSucceedAndBalanceIsExact () throws Exception {
+		@DisplayName("N threads with distinct keys all succeed; final balance equals arithmetic difference and every row is present")
+		void concurrentDistinctKeyWithdrawalsAllSucceedAndBalanceIsExact () throws Exception {
 			BigDecimal amountEach = AMOUNT_100;
+
+			depositService.deposit(
+				"pre-fund-concurrent",
+				new DepositRequest(
+					accountId,
+					amountEach.multiply(BigDecimal.valueOf(CONCURRENT_THREADS)),
+					BRL,
+					"pre-fund"
+				)
+			);
+
 			BigDecimal baseline = loadBalance();
 
 			ConcurrentTestResult result = runConcurrent(
 				CONCURRENT_THREADS,
-				i -> depositService.deposit(
+				i -> withdrawalService.withdraw(
 					"distinct-key-" + i,
-					new DepositRequest(accountId, amountEach, BRL, "load-" + i)
-				)
+					new WithdrawalRequest(accountId, amountEach, BRL, "load-" + i))
 			);
 
 			assertThat(result.failures()).isEmpty();
 			assertThat(result.successes()).isEqualTo(CONCURRENT_THREADS);
 
 			BigDecimal expectedBalance = baseline
-				.add(amountEach.multiply(BigDecimal.valueOf(CONCURRENT_THREADS)));
+				.subtract(amountEach.multiply(BigDecimal.valueOf(CONCURRENT_THREADS)));
 
 			assertThat(loadBalance()).isEqualByComparingTo(expectedBalance);
 
 			assertThat(transactionRepository.findByAccountId(accountId))
+				.filteredOn(tx -> tx.getType() == TransactionType.DEBIT)
 				.hasSize(CONCURRENT_THREADS)
-				.allMatch(tx -> tx.getType() == TransactionType.CREDIT)
 				.allMatch(tx -> tx.getAccountId().equals(accountId));
-
-			assertThat(loadBalance()).isEqualByComparingTo(sumCreditTransactions());
 		}
 
 		@RepeatedTest(3)
-		@DisplayName("N threads racing on the same idempotency key credit the account exactly once; idempotency fence must hold under concurrent load")
-		void concurrentSameKeyDepositsOnlyCreditOnce () throws Exception {
+		@DisplayName("N threads racing on the same idempotency key debit the account exactly once; idempotency fence must hold under concurrent load")
+		void concurrentSameKeyWithdrawalsOnlyDebitOnce () throws Exception {
 			BigDecimal baseline = loadBalance();
 
 			ConcurrentTestResult result = runConcurrent(
 				RACING_THREADS,
-				i -> depositService.deposit(
+				i -> withdrawalService.withdraw(
 					idempotencyKey,
-					new DepositRequest(accountId, AMOUNT_500, BRL, "race")
+					new WithdrawalRequest(accountId, AMOUNT_100, BRL, "race")
 				)
 			);
 
 			assertThat(result.failures()).isEmpty();
 			assertThat(result.successes()).isEqualTo(RACING_THREADS);
 
-			assertThat(loadBalance()).isEqualByComparingTo(baseline.add(AMOUNT_500));
-			assertThat(transactionRepository.findByAccountId(accountId)).hasSize(1);
+			assertThat(loadBalance()).isEqualByComparingTo(baseline.subtract(AMOUNT_100));
+			assertThat(transactionRepository.findByAccountId(accountId))
+				.filteredOn(tx -> tx.getType() == TransactionType.DEBIT)
+				.hasSize(1);
 
 			assertThat(idempotencyKeyRepository.findAll())
 				.filteredOn(r -> r.getKey().equals(idempotencyKey))
@@ -718,12 +868,17 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		}
 
 		@RepeatedTest(3)
-		@DisplayName("concurrent deposits to two distinct accounts do not bleed balance between them")
-		void concurrentDepositsToDistinctAccountsDoNotBleedBalance () throws Exception {
+		@DisplayName("concurrent withdrawals to two distinct accounts do not bleed balance between them")
+		void concurrentWithdrawalsToDistinctAccountsDoNotBleedBalance () throws Exception {
 			AccountResponse accountB = openChecking(CPF_2);
 			UUID idB = accountB.id();
 			BigDecimal amountA = new BigDecimal("300.00");
-			BigDecimal amountB = new BigDecimal("700.00");
+			BigDecimal amountB = new BigDecimal("200.00");
+
+			depositService.deposit("fund-B",
+				new DepositRequest(idB, AMOUNT_500, BRL, "fund B")
+			);
+
 			BigDecimal baseA = loadBalance();
 			BigDecimal baseB = balanceOf(idB);
 
@@ -733,14 +888,15 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 
 			try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
 				Future<?> fa = pool.submit(() -> {
-
 					ready.countDown();
 
 					try {
 						start.await();
 
-						depositService.deposit("key-A", new DepositRequest(accountId, amountA, BRL, "A"));
-
+						withdrawalService.withdraw(
+							"key-A",
+							new WithdrawalRequest(accountId, amountA, BRL, "A")
+						);
 					} catch (Exception e) { errors.add(e); }
 				});
 
@@ -750,8 +906,10 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 					try {
 						start.await();
 
-						depositService.deposit("key-B", new DepositRequest(idB, amountB, BRL, "B"));
-
+						withdrawalService.withdraw(
+							"key-B",
+							new WithdrawalRequest(idB, amountB, BRL, "B")
+						);
 					} catch (Exception e) { errors.add(e); }
 				});
 
@@ -763,8 +921,8 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 			}
 
 			assertThat(errors).isEmpty();
-			assertThat(loadBalance()).isEqualByComparingTo(baseA.add(amountA));
-			assertThat(balanceOf(idB)).isEqualByComparingTo(baseB.add(amountB));
+			assertThat(loadBalance()).isEqualByComparingTo(baseA.subtract(amountA));
+			assertThat(balanceOf(idB)).isEqualByComparingTo(baseB.subtract(amountB));
 		}
 
 		@RepeatedTest(3)
@@ -775,7 +933,18 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 			int totalThreads = uniqueThreads + racingThreads;
 
 			BigDecimal uniqueAmount = AMOUNT_100;
-			BigDecimal racingAmount = AMOUNT_500;
+			BigDecimal racingAmount = AMOUNT_100;
+
+			depositService.deposit(
+				"mixed-pre-fund",
+				new DepositRequest(
+					accountId,
+					uniqueAmount.multiply(BigDecimal.valueOf(uniqueThreads)).add(racingAmount),
+					BRL,
+					"mixed pre-fund"
+				)
+			);
+
 			BigDecimal baseline = loadBalance();
 
 			CountDownLatch ready = new CountDownLatch(totalThreads);
@@ -791,14 +960,14 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 
 						try {
 							if (i < uniqueThreads) {
-								depositService.deposit(
+								withdrawalService.withdraw(
 									"mixed-unique-" + i,
-									new DepositRequest(accountId, uniqueAmount, BRL, "unique-" + i)
+									new WithdrawalRequest(accountId, uniqueAmount, BRL, "unique-" + i)
 								);
 							} else {
-								depositService.deposit(
+								withdrawalService.withdraw(
 									idempotencyKey,
-									new DepositRequest(accountId, racingAmount, BRL, "racing")
+									new WithdrawalRequest(accountId, racingAmount, BRL, "racing")
 								);
 							}
 
@@ -821,34 +990,51 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 			assertThat(successes.get()).isEqualTo(totalThreads);
 
 			BigDecimal expectedBalance = baseline
-				.add(uniqueAmount.multiply(BigDecimal.valueOf(uniqueThreads)))
-				.add(racingAmount);
+				.subtract(uniqueAmount.multiply(BigDecimal.valueOf(uniqueThreads)))
+				.subtract(racingAmount);  // racing threads share a single debit
 
 			assertThat(loadBalance()).isEqualByComparingTo(expectedBalance);
 			assertThat(transactionRepository.findByAccountId(accountId))
+				.filteredOn(tx -> tx.getType() == TransactionType.DEBIT)
 				.hasSize(uniqueThreads + 1);
 		}
 	}
 
-	private TransactionResponse deposit (BigDecimal amount) {
-		return depositService.deposit(
+	private TransactionResponse withdraw (BigDecimal amount) {
+		return withdrawalService.withdraw(
 			idempotencyKey,
-			new DepositRequest(accountId, amount, BRL, "test deposit")
+			new WithdrawalRequest(accountId, amount, BRL, "test withdrawal")
 		);
 	}
 
-	private TransactionResponse deposit (BigDecimal amount, String key) {
-		return depositService.deposit(
+	private TransactionResponse withdraw (BigDecimal amount, String key) {
+		return withdrawalService.withdraw(
 			key,
-			new DepositRequest(accountId, amount, BRL, "test deposit")
+			new WithdrawalRequest(accountId, amount, BRL, "test withdrawal")
 		);
 	}
 
-	private void tryDeposit (UUID targetAccountId) {
+	private void tryWithdraw (UUID targetAccountId) {
 		try {
-			depositService
-				.deposit(idempotencyKey, new DepositRequest(targetAccountId, STANDARD, BRL, "ghost"));
+			withdrawalService.withdraw(
+				idempotencyKey,
+				new WithdrawalRequest(targetAccountId, STANDARD, BRL, "ghost")
+			);
 		} catch (AccountNotFoundException ignored) { }
+	}
+
+	private void fund (BigDecimal amount) {
+		depositService.deposit(
+			"fund:" + UUID.randomUUID(),
+			new DepositRequest(accountId, amount, BRL, "initial fund")
+		);
+	}
+
+	private void fund (BigDecimal amount, UUID targetId, String key) {
+		depositService.deposit(
+			key,
+			new DepositRequest(targetId, amount, BRL, "fund")
+		);
 	}
 
 	private BigDecimal loadBalance () {
@@ -870,7 +1056,7 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 	private Transaction requireTransaction (UUID id) {
 		return transactionRepository.findById(id)
 			.orElseThrow(() -> new AssertionError(
-				"Transaction row must exist after deposit but was not found: id=" + id));
+				"Transaction row must exist after withdrawal but was not found: id=" + id));
 	}
 
 	private Transaction requireTransactionByKey (String key) {
@@ -882,12 +1068,12 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 	private IdempotencyKey requireIdempotencyRecord (String key) {
 		return idempotencyKeyRepository.findByKey(key)
 			.orElseThrow(() -> new AssertionError(
-				"Idempotency record must be persisted after a successful deposit: key=" + key));
+				"Idempotency record must be persisted after a successful withdrawal: key=" + key));
 	}
 
-	private BigDecimal sumCreditTransactions () {
+	private BigDecimal sumDebitTransactions () {
 		return transactionRepository.findByAccountId(accountId).stream()
-			.filter(tx -> tx.getType() == TransactionType.CREDIT)
+			.filter(tx -> tx.getType() == TransactionType.DEBIT)
 			.map(tx -> tx.getAmount().amount())
 			.reduce(BigDecimal.ZERO, BigDecimal::add);
 	}
@@ -908,7 +1094,6 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 
 					try {
 						task.execute(i);
-
 						successes.incrementAndGet();
 					} catch (Exception e) {
 						failures.add(e);
