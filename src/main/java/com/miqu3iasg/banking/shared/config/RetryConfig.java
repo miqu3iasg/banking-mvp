@@ -1,6 +1,10 @@
 package com.miqu3iasg.banking.shared.config;
 
+import com.miqu3iasg.banking.account.service.AccountMetrics;
 import com.miqu3iasg.banking.pix.exception.PixAuthenticationException;
+import com.miqu3iasg.banking.shared.observability.RetryMetrics;
+import com.miqu3iasg.banking.transaction.listener.TransactionRetryListener;
+import com.miqu3iasg.banking.transaction.service.TransactionMetrics;
 import jakarta.persistence.OptimisticLockException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -18,101 +22,73 @@ import java.util.Map;
 @RequiredArgsConstructor
 @EnableConfigurationProperties(RetryProperties.class)
 public class RetryConfig {
+
+	private static final Map<Class<? extends Throwable>, Boolean> OPTIMISTIC_LOCK_EXCEPTIONS = Map.of(
+		OptimisticLockException.class, true,
+		OptimisticLockingFailureException.class, true,
+		TransientDataAccessException.class, true
+	);
+
 	private final RetryProperties props;
+	private final TransactionMetrics transactionMetrics;
+	private final AccountMetrics accountMetrics;
 
-	@Bean
-	public RetryTemplate accountLockRetryTemplate () {
-		SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy(
-			props.maxAttempts(),
-			Map.of(
-				OptimisticLockException.class, true,
-				OptimisticLockingFailureException.class, true,
-				TransientDataAccessException.class, true
-			),
-			/* traverseCauses= */ true,
-			/* defaultValue (non-listed exceptions not retried) = */ false
-		);
-
-		ExponentialRandomBackOffPolicy backOff = new ExponentialRandomBackOffPolicy();
-
-		backOff.setInitialInterval(props.baseDelayMs());
-		backOff.setMultiplier(props.multiplier());
-		backOff.setMaxInterval(props.maxDelayMs());
-
-		return RetryTemplate.builder()
-			.customPolicy(retryPolicy)
-			.customBackoff(backOff)
-			.build();
-	}
-
-	@Bean
+	@Bean("efiRetryTemplate")
 	public RetryTemplate efiRetryTemplate () {
-		SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy(
-			props.maxAttempts(),
-			Map.of(
-				PixAuthenticationException.class, true
-			),
-			/* traverseCauses= */ true,
-			/* defaultValue (non-listed exceptions not retried) = */ false
-		);
-
-		ExponentialRandomBackOffPolicy backOff = new ExponentialRandomBackOffPolicy();
-
-		backOff.setInitialInterval(props.baseDelayMs());
-		backOff.setMultiplier(props.multiplier());
-		backOff.setMaxInterval(props.baseDelayMs());
-
-		return RetryTemplate.builder()
-			.customPolicy(retryPolicy)
-			.customBackoff(backOff)
-			.build();
+		return buildTemplate(Map.of(PixAuthenticationException.class, true), null);
 	}
 
-	@Bean
+	@Bean("accountLockRetryTemplate")
+	public RetryTemplate accountLockRetryTemplate () {
+		return buildLockRetryTemplate(accountMetrics);
+	}
+
+	@Bean("depositLockRetryTemplate")
 	public RetryTemplate depositLockRetryTemplate () {
-		SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy(
-			props.maxAttempts(),
-			Map.of(
-				OptimisticLockException.class, true,
-				OptimisticLockingFailureException.class, true,
-				TransientDataAccessException.class, true
-			),
-			/* traverseCauses= */ true,
-			/* defaultValue= */ false
-		);
-
-		ExponentialRandomBackOffPolicy backOff = new ExponentialRandomBackOffPolicy();
-		backOff.setInitialInterval(props.baseDelayMs());
-		backOff.setMultiplier(props.multiplier());
-		backOff.setMaxInterval(props.maxDelayMs());
-
-		return RetryTemplate.builder()
-			.customPolicy(retryPolicy)
-			.customBackoff(backOff)
-			.build();
+		return buildLockRetryTemplate(transactionMetrics);
 	}
 
-	@Bean
+	@Bean("withdrawalLockRetryTemplate")
 	public RetryTemplate withdrawalLockRetryTemplate () {
+		return buildLockRetryTemplate(transactionMetrics);
+	}
+
+	@Bean("transferLockRetryTemplate")
+	public RetryTemplate transferLockRetryTemplate () {
+		return buildLockRetryTemplate(transactionMetrics);
+	}
+
+	private RetryTemplate buildLockRetryTemplate (RetryMetrics retryMetrics) {
+		return buildTemplate(OPTIMISTIC_LOCK_EXCEPTIONS, retryMetrics);
+	}
+
+	private RetryTemplate buildTemplate (
+		Map<Class<? extends Throwable>, Boolean> retryableExceptions,
+		RetryMetrics metrics
+	) {
 		SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy(
 			props.maxAttempts(),
-			Map.of(
-				OptimisticLockException.class, true,
-				OptimisticLockingFailureException.class, true,
-				TransientDataAccessException.class, true
-			),
+			retryableExceptions,
 			/* traverseCauses= */ true,
 			/* defaultValue= */ false
 		);
 
 		ExponentialRandomBackOffPolicy backOff = new ExponentialRandomBackOffPolicy();
+
 		backOff.setInitialInterval(props.baseDelayMs());
 		backOff.setMultiplier(props.multiplier());
 		backOff.setMaxInterval(props.maxDelayMs());
 
-		return RetryTemplate.builder()
+		RetryTemplate template = RetryTemplate.builder()
 			.customPolicy(retryPolicy)
 			.customBackoff(backOff)
 			.build();
+
+
+		if (metrics != null) {
+			template.registerListener(new TransactionRetryListener(metrics, props.maxAttempts()));
+		}
+
+		return template;
 	}
 }

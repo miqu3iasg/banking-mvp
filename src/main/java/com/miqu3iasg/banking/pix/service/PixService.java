@@ -18,22 +18,17 @@ import com.miqu3iasg.banking.pix.repository.PixChargeRepository;
 import com.miqu3iasg.banking.pix.repository.PixKeyRepository;
 import com.miqu3iasg.banking.shared.domain.Money;
 import com.miqu3iasg.banking.shared.exception.AccountNotFoundException;
-import com.miqu3iasg.banking.shared.exception.IdempotencyTimeoutException;
-import com.miqu3iasg.banking.shared.idempotency.IdempotencyService;
+import com.miqu3iasg.banking.shared.idempotency.IdempotentOperationExecutor;
 import com.miqu3iasg.banking.transaction.domain.Transaction;
 import com.miqu3iasg.banking.transaction.repository.TransactionRepository;
-import com.miqu3iasg.banking.transaction.service.TransactionCompletedEvent;
+import com.miqu3iasg.banking.transaction.service.TransactionEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.UUID;
-import java.util.function.Supplier;
 
 @Slf4j
 @Service
@@ -47,17 +42,17 @@ public class PixService {
 	private final AccountRepository accountRepository;
 	private final TransactionRepository transactionRepository;
 	private final PixGateway pixGateway;
-	private final IdempotencyService idempotencyService;
+	private final IdempotentOperationExecutor idempotentOperationExecutor;
+	private final TransactionEventPublisher transactionEventPublisher;
 	private final PixMetrics metrics;
 	private final EfiPixProperties efiPixProperties;
-	private final ApplicationEventPublisher eventPublisher;
 
 	public PixChargeResponse createCharge (
 		UUID accountId,
 		CreatePixChargeRequest request,
 		String idempotencyKey
 	) {
-		return executeOrAwaitIdempotentOperation(
+		return idempotentOperationExecutor.execute(
 			idempotencyKey,
 			OPERATION_CREATE_CHARGE,
 			PixChargeResponse.class,
@@ -139,7 +134,7 @@ public class PixService {
 
 	@Transactional
 	public void processWebhookPayment (String txid, Instant paidAt, String idempotencyKey) {
-		executeOrAwaitIdempotentOperation(
+		idempotentOperationExecutor.execute(
 			idempotencyKey,
 			OPERATION_WEBHOOK_PAYMENT,
 			PixChargeResponse.class,
@@ -170,7 +165,7 @@ public class PixService {
 
 		transactionRepository.save(transaction);
 
-		schedulePostCommitEvent(transaction);
+		transactionEventPublisher.schedulePostCommitEvent(transaction);
 
 		metrics.recordPaymentReceived();
 
@@ -180,46 +175,6 @@ public class PixService {
 			charge.getAmount());
 
 		return PixChargeResponse.from(charge);
-	}
-
-	private <T> T executeOrAwaitIdempotentOperation (
-		String idempotencyKey,
-		String operation,
-		Class<T> responseType,
-		Supplier<T> action
-	) {
-		var cached = idempotencyService.findCachedResponse(idempotencyKey, responseType);
-		if (cached.isPresent()) {
-			log.debug("idempotency HIT: operation=[{}] key=[{}]", operation, idempotencyKey);
-			return cached.get();
-		}
-
-		boolean winner = idempotencyService.claimKey(idempotencyKey, operation);
-		if (!winner) {
-			log.debug("idempotency LOSER: operation=[{}] key=[{}]; awaiting winner", operation, idempotencyKey);
-			return idempotencyService
-				.awaitCompletedResponse(idempotencyKey, responseType)
-				.orElseThrow(() -> new IdempotencyTimeoutException(idempotencyKey));
-		}
-
-		try {
-			T response = action.get();
-			idempotencyService.completeKey(idempotencyKey, operation, response);
-			return response;
-		} catch (Exception e) {
-			idempotencyService.deletePendingKey(idempotencyKey);
-			throw e;
-		}
-	}
-
-	private void schedulePostCommitEvent (Transaction transaction) {
-		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-			@Override
-			public void afterCommit () {
-				eventPublisher.publishEvent(
-					TransactionCompletedEvent.ofSingleAccount(transaction));
-			}
-		});
 	}
 
 	private String generateTxid () {

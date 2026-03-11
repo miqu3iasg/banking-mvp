@@ -2,6 +2,7 @@ package com.miqu3iasg.banking.account.service;
 
 import com.miqu3iasg.banking.account.domain.AccountType;
 import com.miqu3iasg.banking.shared.exception.BusinessException;
+import com.miqu3iasg.banking.shared.observability.RetryMetrics;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -13,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 @Component
-public class AccountMetrics {
+public class AccountMetrics implements RetryMetrics {
 
 	private static final String ACCOUNTS_OPENED = "banking.accounts.opened.total";
 	private static final String STATUS_TRANSITIONS = "banking.accounts.status.transitions.total";
@@ -45,6 +46,16 @@ public class AccountMetrics {
 
 	public AccountMetrics (MeterRegistry registry) {
 		this.registry = registry;
+	}
+
+	@Override
+	public void recordLockRetry (String action, int retryAttempt) {
+		Counter.builder(LOCK_RETRIES)
+			.description("Total number of optimistic-lock retries by action and attempt number")
+			.tag(TAG_ACTION, action.toLowerCase())
+			.tag(TAG_RETRY_ATTEMPT, String.valueOf(retryAttempt))
+			.register(registry)
+			.increment();
 	}
 
 	public <T> T timeAccountOpening (AccountType type, Supplier<T> operation) {
@@ -153,15 +164,6 @@ public class AccountMetrics {
 		Gauge.builder(ACTIVE_ACCOUNTS_GAUGE, supplier)
 			.description("Current number of accounts in ACTIVE status")
 			.register(registry);
-	}
-
-	public void recordLockRetry (String action, int retryAttempt) {
-		Counter.builder(LOCK_RETRIES)
-			.description("Total number of optimistic-lock retries by action and attempt number")
-			.tag(TAG_ACTION, action.toLowerCase())
-			.tag(TAG_RETRY_ATTEMPT, String.valueOf(retryAttempt))
-			.register(registry)
-			.increment();
 	}
 
 	void recordError (String errorCode) {

@@ -106,6 +106,9 @@ class PixServiceIntegrationTest extends AbstractIntegrationTestSupport {
 
 	static final WireMockServer wireMock = new WireMockServer(wireMockConfig().dynamicPort());
 
+	private UUID accountId;
+	private String idempotencyKey;
+
 	@DynamicPropertySource
 	static void overrideEfiProperties (DynamicPropertyRegistry registry) {
 		wireMock.start();
@@ -127,9 +130,6 @@ class PixServiceIntegrationTest extends AbstractIntegrationTestSupport {
 	static void stopWireMock () {
 		wireMock.stop();
 	}
-
-	private UUID accountId;
-	private String idempotencyKey;
 
 	@BeforeEach
 	void setUpPixFixtures () {

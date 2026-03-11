@@ -1,6 +1,7 @@
 package com.miqu3iasg.banking.transaction.service;
 
 import com.miqu3iasg.banking.shared.exception.BusinessException;
+import com.miqu3iasg.banking.shared.observability.RetryMetrics;
 import com.miqu3iasg.banking.transaction.domain.TransactionType;
 import io.micrometer.core.instrument.*;
 import org.springframework.stereotype.Component;
@@ -9,7 +10,7 @@ import java.time.Duration;
 import java.util.function.Supplier;
 
 @Component
-public class TransactionMetrics {
+public class TransactionMetrics implements RetryMetrics {
 
 	private static final String TRANSACTIONS_COMPLETED = "banking.transactions.completed.total";
 	private static final String TRANSACTIONS_FAILED = "banking.transactions.failed.total";
@@ -34,6 +35,16 @@ public class TransactionMetrics {
 
 	public TransactionMetrics (MeterRegistry registry) {
 		this.registry = registry;
+	}
+
+	@Override
+	public void recordLockRetry (String action, int retryAttempt) {
+		Counter.builder(LOCK_RETRIES)
+			.description("Total number of optimistic-lock retries by action and attempt number")
+			.tag(TAG_ACTION, action.toLowerCase())
+			.tag(TAG_RETRY_ATTEMPT, String.valueOf(retryAttempt))
+			.register(registry)
+			.increment();
 	}
 
 	public <T> T timeDeposit (String currency, Supplier<T> operation) {
@@ -97,14 +108,6 @@ public class TransactionMetrics {
 			.register(registry);
 	}
 
-	public void recordLockRetry (String action, int retryAttempt) {
-		Counter.builder(LOCK_RETRIES)
-			.description("Total number of optimistic-lock retries by action and attempt number")
-			.tag(TAG_ACTION, action.toLowerCase())
-			.tag(TAG_RETRY_ATTEMPT, String.valueOf(retryAttempt))
-			.register(registry)
-			.increment();
-	}
 
 	private void recordCompleted (OperationType type, String currency) {
 		Counter.builder(TRANSACTIONS_COMPLETED)

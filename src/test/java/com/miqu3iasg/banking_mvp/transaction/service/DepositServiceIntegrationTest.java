@@ -20,7 +20,6 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 
 import java.math.BigDecimal;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
@@ -35,25 +34,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 
-	private static final String BRL = "BRL";
-	private static final BigDecimal STANDARD = new BigDecimal("500.00");
-	private static final BigDecimal SMALL = new BigDecimal("0.01");
-	private static final BigDecimal LARGE = new BigDecimal("999999.9999");
-
-	private static final Duration IDEMPOTENCY_KEY_RETENTION = Duration.ofHours(24);
-
-	private static final int CONCURRENT_THREADS = 12;
-	private static final int RACING_THREADS = 10;
-	private static final long FUTURE_TIMEOUT_SECONDS = 30;
-
 	private static final String OPERATION_TYPE_DEPOSIT = "DEPOSIT";
 	private static final String KEY_PREFIX_DEPOSIT = "deposit:";
-	private static final BigDecimal AMOUNT_100 = new BigDecimal("100.00");
-	private static final BigDecimal AMOUNT_200 = new BigDecimal("200.00");
-	private static final BigDecimal AMOUNT_500 = new BigDecimal("500.00");
-	private static final BigDecimal AMOUNT_123_45 = new BigDecimal("123.45");
-	private static final BigDecimal AMOUNT_1_00 = new BigDecimal("1.00");
-	private static final BigDecimal AMOUNT_SUB_CENT = new BigDecimal("0.0001");
 
 	private UUID accountId;
 	private String idempotencyKey;
@@ -226,16 +208,16 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		@DisplayName("large high-precision deposit is stored without overflow or rounding in the balance column")
 		void largeHighPrecisionDepositStoredWithoutOverflow () {
 			BigDecimal baseline = loadBalance();
-			deposit(LARGE, "key-large");
+			deposit(AMOUNT_LARGE, "key-large");
 
 			assertThat(loadBalance())
-				.isEqualByComparingTo(baseline.add(LARGE));
+				.isEqualByComparingTo(baseline.add(AMOUNT_LARGE));
 		}
 
 		@Test
 		@DisplayName("balance is non-negative after any single deposit; credits only ever add")
 		void balanceIsAlwaysNonNegativeAfterDeposit () {
-			deposit(SMALL);
+			deposit(AMOUNT_MIN);
 
 			assertThat(loadBalance())
 				.isGreaterThanOrEqualTo(BigDecimal.ZERO);
@@ -851,88 +833,23 @@ class DepositServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		} catch (AccountNotFoundException ignored) { }
 	}
 
-	private BigDecimal loadBalance () {
-		return loadAccount().getBalance().amount();
-	}
-
-	private BigDecimal balanceOf (UUID id) {
-		return accountRepository.findById(id)
-			.orElseThrow(() -> new AssertionError("Account " + id + " not found"))
-			.getBalance().amount();
-	}
-
 	private Account loadAccount () {
-		return accountRepository.findById(accountId)
-			.orElseThrow(() -> new AssertionError(
-				"Primary test account disappeared; check setUp/tearDown ordering"));
+		return loadAccount(accountId);
+	}
+
+	private BigDecimal loadBalance () {
+		return loadBalance(accountId);
 	}
 
 	private Transaction requireTransaction (UUID id) {
-		return transactionRepository.findById(id)
-			.orElseThrow(() -> new AssertionError(
-				"Transaction row must exist after deposit but was not found: id=" + id));
-	}
-
-	private Transaction requireTransactionByKey (String key) {
-		return transactionRepository.findByIdempotencyKey(key)
-			.orElseThrow(() -> new AssertionError(
-				"findByIdempotencyKey returned empty; index or mapping is broken: key=" + key));
+		return requireTransaction(id, "deposit");
 	}
 
 	private IdempotencyKey requireIdempotencyRecord (String key) {
-		return idempotencyKeyRepository.findByKey(key)
-			.orElseThrow(() -> new AssertionError(
-				"Idempotency record must be persisted after a successful deposit: key=" + key));
+		return requireIdempotencyRecord(key, "deposit");
 	}
 
 	private BigDecimal sumCreditTransactions () {
-		return transactionRepository.findByAccountId(accountId).stream()
-			.filter(tx -> tx.getType() == TransactionType.CREDIT)
-			.map(tx -> tx.getAmount().amount())
-			.reduce(BigDecimal.ZERO, BigDecimal::add);
+		return sumTransactionAmountsByType(accountId, TransactionType.CREDIT);
 	}
-
-	private ConcurrentTestResult runConcurrent (int threadCount, ConcurrentTask task)
-		throws InterruptedException, ExecutionException, TimeoutException {
-
-		CountDownLatch ready = new CountDownLatch(threadCount);
-		CountDownLatch start = new CountDownLatch(1);
-		AtomicInteger successes = new AtomicInteger();
-		CopyOnWriteArrayList<Throwable> failures = new CopyOnWriteArrayList<>();
-
-		try (ExecutorService pool = Executors.newFixedThreadPool(threadCount)) {
-			List<Future<Void>> futures = IntStream.range(0, threadCount)
-				.mapToObj(i -> pool.submit((Callable<Void>) () -> {
-					ready.countDown();
-					start.await();
-
-					try {
-						task.execute(i);
-
-						successes.incrementAndGet();
-					} catch (Exception e) {
-						failures.add(e);
-					}
-
-					return null;
-				}))
-				.toList();
-
-			ready.await();
-			start.countDown();
-
-			for (Future<Void> f : futures) {
-				f.get(FUTURE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-			}
-		}
-
-		return new ConcurrentTestResult(successes.get(), failures);
-	}
-
-	@FunctionalInterface
-	private interface ConcurrentTask {
-		void execute (int threadIndex) throws Exception;
-	}
-
-	private record ConcurrentTestResult(int successes, List<Throwable> failures) { }
 }

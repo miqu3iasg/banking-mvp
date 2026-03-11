@@ -21,7 +21,6 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 
 import java.math.BigDecimal;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
@@ -36,27 +35,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class WithdrawalServiceIntegrationTest extends AbstractIntegrationTestSupport {
 
-	private static final String BRL = "BRL";
-
 	private static final BigDecimal FUND = new BigDecimal("1000.00");
-	private static final BigDecimal STANDARD = new BigDecimal("500.00");
-	private static final BigDecimal SMALL = new BigDecimal("0.01");
-	private static final BigDecimal LARGE = new BigDecimal("999.9999");
-	private static final BigDecimal AMOUNT_100 = new BigDecimal("100.00");
-	private static final BigDecimal AMOUNT_200 = new BigDecimal("200.00");
-	private static final BigDecimal AMOUNT_300 = new BigDecimal("300.00");
-	private static final BigDecimal AMOUNT_500 = new BigDecimal("500.00");
-	private static final BigDecimal AMOUNT_123_45 = new BigDecimal("123.45");
-	private static final BigDecimal AMOUNT_1_00 = new BigDecimal("1.00");
-	private static final BigDecimal AMOUNT_SUB_CENT = new BigDecimal("0.0001");
 
-	private static final Duration IDEMPOTENCY_KEY_RETENTION = Duration.ofHours(24);
 	private static final String OPERATION_TYPE_WITHDRAWAL = "WITHDRAWAL";
 	private static final String KEY_PREFIX_WITHDRAWAL = "withdrawal:";
-
-	private static final int CONCURRENT_THREADS = 12;
-	private static final int RACING_THREADS = 10;
-	private static final long FUTURE_TIMEOUT_SECONDS = 30;
 
 	private UUID accountId;
 	private String idempotencyKey;
@@ -65,7 +47,7 @@ class WithdrawalServiceIntegrationTest extends AbstractIntegrationTestSupport {
 	void setUp () {
 		accountId = openChecking(CPF_1).id();
 		idempotencyKey = KEY_PREFIX_WITHDRAWAL + UUID.randomUUID();
-		fund(FUND);  // seed the account with enough balance for all standard cases
+		fund(FUND);
 	}
 
 	@AfterEach
@@ -244,10 +226,10 @@ class WithdrawalServiceIntegrationTest extends AbstractIntegrationTestSupport {
 				new DepositRequest(accountId, new BigDecimal("1000.00"), BRL, "extra"));
 			BigDecimal baseline = loadBalance();
 
-			withdraw(LARGE, "key-large");
+			withdraw(AMOUNT_LARGE, "key-large");
 
 			assertThat(loadBalance())
-				.isEqualByComparingTo(baseline.subtract(LARGE));
+				.isEqualByComparingTo(baseline.subtract(AMOUNT_LARGE));
 		}
 
 		@Test
@@ -1038,86 +1020,22 @@ class WithdrawalServiceIntegrationTest extends AbstractIntegrationTestSupport {
 	}
 
 	private BigDecimal loadBalance () {
-		return loadAccount().getBalance().amount();
-	}
-
-	private BigDecimal balanceOf (UUID id) {
-		return accountRepository.findById(id)
-			.orElseThrow(() -> new AssertionError("Account " + id + " not found"))
-			.getBalance().amount();
+		return loadBalance(accountId);
 	}
 
 	private Account loadAccount () {
-		return accountRepository.findById(accountId)
-			.orElseThrow(() -> new AssertionError(
-				"Primary test account disappeared; check setUp/tearDown ordering"));
+		return loadAccount(accountId);
 	}
 
 	private Transaction requireTransaction (UUID id) {
-		return transactionRepository.findById(id)
-			.orElseThrow(() -> new AssertionError(
-				"Transaction row must exist after withdrawal but was not found: id=" + id));
-	}
-
-	private Transaction requireTransactionByKey (String key) {
-		return transactionRepository.findByIdempotencyKey(key)
-			.orElseThrow(() -> new AssertionError(
-				"findByIdempotencyKey returned empty; index or mapping is broken: key=" + key));
+		return requireTransaction(id, "withdrawal");
 	}
 
 	private IdempotencyKey requireIdempotencyRecord (String key) {
-		return idempotencyKeyRepository.findByKey(key)
-			.orElseThrow(() -> new AssertionError(
-				"Idempotency record must be persisted after a successful withdrawal: key=" + key));
+		return requireIdempotencyRecord(key, "withdrawal");
 	}
 
 	private BigDecimal sumDebitTransactions () {
-		return transactionRepository.findByAccountId(accountId).stream()
-			.filter(tx -> tx.getType() == TransactionType.DEBIT)
-			.map(tx -> tx.getAmount().amount())
-			.reduce(BigDecimal.ZERO, BigDecimal::add);
+		return sumTransactionAmountsByType(accountId, TransactionType.DEBIT);
 	}
-
-	private ConcurrentTestResult runConcurrent (int threadCount, ConcurrentTask task)
-		throws InterruptedException, ExecutionException, TimeoutException {
-
-		CountDownLatch ready = new CountDownLatch(threadCount);
-		CountDownLatch start = new CountDownLatch(1);
-		AtomicInteger successes = new AtomicInteger();
-		CopyOnWriteArrayList<Throwable> failures = new CopyOnWriteArrayList<>();
-
-		try (ExecutorService pool = Executors.newFixedThreadPool(threadCount)) {
-			List<Future<Void>> futures = IntStream.range(0, threadCount)
-				.mapToObj(i -> pool.submit((Callable<Void>) () -> {
-					ready.countDown();
-					start.await();
-
-					try {
-						task.execute(i);
-						successes.incrementAndGet();
-					} catch (Exception e) {
-						failures.add(e);
-					}
-
-					return null;
-				}))
-				.toList();
-
-			ready.await();
-			start.countDown();
-
-			for (Future<Void> f : futures) {
-				f.get(FUTURE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-			}
-		}
-
-		return new ConcurrentTestResult(successes.get(), failures);
-	}
-
-	@FunctionalInterface
-	private interface ConcurrentTask {
-		void execute (int threadIndex) throws Exception;
-	}
-
-	private record ConcurrentTestResult(int successes, List<Throwable> failures) { }
 }

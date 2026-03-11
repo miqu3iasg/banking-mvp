@@ -65,7 +65,7 @@ class AccountServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		@Test
 		@DisplayName("persists SAVINGS account and assigns correct default currency")
 		void savingsAccountIsPersistedWithCorrectCurrency () {
-			AccountResponse response = accountService.openAccount(savings(CPF_2));
+			AccountResponse response = accountService.openAccount(savingsRequest(CPF_2));
 
 			assertThat(response.type()).isEqualTo(AccountType.SAVINGS);
 			assertThat(response.status()).isEqualTo(AccountStatus.ACTIVE);
@@ -99,7 +99,7 @@ class AccountServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		void duplicateDocumentIsCaseInsensitive () {
 			openChecking(CPF_1);
 
-			assertThatThrownBy(() -> accountService.openAccount(checking(CPF_1.toLowerCase())))
+			assertThatThrownBy(() -> accountService.openAccount(checkingRequest(CPF_1.toLowerCase())))
 				.isInstanceOf(AccountAlreadyExistsException.class);
 		}
 
@@ -238,7 +238,7 @@ class AccountServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		@Test
 		@DisplayName("throws on BLOCKED → BLOCK (double-block is illegal)")
 		void blockedAccountRejectsDoubleBlock () {
-			AccountResponse blocked = openAndBlock(CPF_1);
+			AccountResponse blocked = openThenBlock(CPF_1);
 
 			assertThatThrownBy(() -> accountService.applyStatusAction(blocked.id(), AccountAction.BLOCK_ACCOUNT_USAGE))
 				.isInstanceOf(AccountBlockedException.class);
@@ -247,7 +247,7 @@ class AccountServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		@Test
 		@DisplayName("throws on CLOSED → BLOCK")
 		void closedAccountRejectsBlock () {
-			AccountResponse closed = openAndClose(CPF_1);
+			AccountResponse closed = openThenClose(CPF_1);
 
 			assertThatThrownBy(() -> accountService.applyStatusAction(closed.id(), AccountAction.BLOCK_ACCOUNT_USAGE))
 				.isInstanceOf(AccountClosedException.class);
@@ -268,7 +268,7 @@ class AccountServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		@Test
 		@DisplayName("transitions BLOCKED → ACTIVE and persists the new status")
 		void blockedAccountTransitionsToActive () {
-			AccountResponse blocked = openAndBlock(CPF_1);
+			AccountResponse blocked = openThenBlock(CPF_1);
 
 			AccountResponse result = accountService.applyStatusAction(blocked.id(), AccountAction.UNBLOCK_ACCOUNT_USAGE);
 
@@ -290,7 +290,7 @@ class AccountServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		@Test
 		@DisplayName("throws on CLOSED → UNBLOCK")
 		void closedAccountRejectsUnblock () {
-			AccountResponse closed = openAndClose(CPF_1);
+			AccountResponse closed = openThenClose(CPF_1);
 
 			assertThatThrownBy(() -> accountService.applyStatusAction(closed.id(), AccountAction.UNBLOCK_ACCOUNT_USAGE))
 				.isInstanceOf(BusinessException.class);
@@ -317,7 +317,7 @@ class AccountServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		@Test
 		@DisplayName("throws on BLOCKED → CLOSE (must unblock first)")
 		void blockedAccountRejectsClose () {
-			AccountResponse blocked = openAndBlock(CPF_1);
+			AccountResponse blocked = openThenBlock(CPF_1);
 
 			assertThatThrownBy(() -> accountService.applyStatusAction(blocked.id(), AccountAction.CLOSE_ACCOUNT))
 				.isInstanceOf(AccountBlockedException.class);
@@ -326,7 +326,7 @@ class AccountServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		@Test
 		@DisplayName("throws on CLOSED → CLOSE (already closed)")
 		void closedAccountRejectsDoubleClose () {
-			AccountResponse closed = openAndClose(CPF_1);
+			AccountResponse closed = openThenClose(CPF_1);
 
 			assertThatThrownBy(() -> accountService.applyStatusAction(closed.id(), AccountAction.CLOSE_ACCOUNT))
 				.isInstanceOf(BusinessException.class);
@@ -361,8 +361,8 @@ class AccountServiceIntegrationTest extends AbstractIntegrationTestSupport {
 		void illegalTransitionAlwaysThrows (String description, String setup, AccountAction action) {
 			UUID id = switch (setup) {
 				case "active" -> openChecking(CPF_1).id();
-				case "blocked" -> openAndBlock(CPF_1).id();
-				case "closed" -> openAndClose(CPF_1).id();
+				case "blocked" -> openThenBlock(CPF_1).id();
+				case "closed" -> openThenClose(CPF_1).id();
 				default -> throw new IllegalArgumentException("unknown setup: " + setup);
 			};
 
@@ -519,9 +519,6 @@ class AccountServiceIntegrationTest extends AbstractIntegrationTestSupport {
 			Account raw = accountRepository.findById(created.id()).orElseThrow();
 			String takenNumber = raw.getAccountNumber();
 
-			// Attempt to open a second account whose number would collide; this is only
-			// possible by manipulating the sequence externally or through a mock;
-			// here we verify the unique index exists by asserting one account per number.
 			long count = accountRepository.findAll().stream()
 				.filter(a -> a.getAccountNumber().equals(takenNumber))
 				.count();
@@ -556,7 +553,7 @@ class AccountServiceIntegrationTest extends AbstractIntegrationTestSupport {
 			openChecking(CPF_2);
 			assertThat(accountRepository.countActiveAccounts()).isEqualTo(baseline + 2);
 
-			openAndBlock(CPF_3);
+			openThenBlock(CPF_3);
 			assertThat(accountRepository.countActiveAccounts()).isEqualTo(baseline + 2);
 		}
 

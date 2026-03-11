@@ -4,19 +4,15 @@ import com.miqu3iasg.banking.account.api.dto.AccountResponse;
 import com.miqu3iasg.banking.account.api.dto.CreateAccountRequest;
 import com.miqu3iasg.banking.account.domain.Account;
 import com.miqu3iasg.banking.account.domain.AccountAction;
+import com.miqu3iasg.banking.account.exception.AccountAlreadyExistsException;
+import com.miqu3iasg.banking.account.exception.AccountFaultCode;
 import com.miqu3iasg.banking.account.repository.AccountRepository;
 import com.miqu3iasg.banking.compliance.document.DocumentValidator;
-import com.miqu3iasg.banking.account.exception.AccountAlreadyExistsException;
 import com.miqu3iasg.banking.shared.exception.AccountNotFoundException;
 import com.miqu3iasg.banking.shared.exception.BusinessException;
-import com.miqu3iasg.banking.shared.exception.TransientExceptionClassifier;
-import com.miqu3iasg.banking.account.exception.AccountFaultCode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.retry.RetryCallback;
-import org.springframework.retry.RetryContext;
-import org.springframework.retry.RetryListener;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -55,7 +51,6 @@ public class AccountService {
 		this.accountStateTransitions = accountStateTransitions;
 		this.accountNumberGenerator = accountNumberGenerator;
 		this.retryTemplate = retryTemplate;
-		this.retryTemplate.registerListener(accountRetryListener());
 	}
 
 
@@ -66,7 +61,10 @@ public class AccountService {
 
 			log.info("Opening {} account for document ...{}", request.type(), request.documentNumber());
 
-			guardAgainstDuplicate(request.documentNumber());
+			if (accountRepository.existsByDocumentNumber(request.documentNumber())) {
+				log.warn("Account opening rejected; document already registered [document={}]", request.documentNumber());
+				throw new AccountAlreadyExistsException(request.documentNumber());
+			}
 
 			Account saved = provisionAccount(request);
 
@@ -79,20 +77,6 @@ public class AccountService {
 		});
 	}
 
-	/**
-	 * Fast-path duplicate check before hitting the database.
-	 * This is a best-effort guard: a race between two concurrent requests with the
-	 * same document can still pass this check simultaneously. The real safety net is
-	 * the unique constraint enforced at the persistence layer — see provisionAccount(),
-	 * which catches DataIntegrityViolationException and converts it to
-	 * AccountAlreadyExistsException. Both layers are intentional.
-	 */
-	private void guardAgainstDuplicate (final String documentNumber) {
-		if (accountRepository.existsByDocumentNumber(documentNumber)) {
-			log.warn("Account opening rejected — document already registered [document={}]", documentNumber);
-			throw new AccountAlreadyExistsException(documentNumber);
-		}
-	}
 
 	private Account provisionAccount (CreateAccountRequest request) {
 		Account account = Account.open(
@@ -106,9 +90,6 @@ public class AccountService {
 		try {
 			return accountRepository.save(account);
 		} catch (DataIntegrityViolationException ex) {
-			// Safety net for the TOCTOU race: two threads may pass guardAgainstDuplicate()
-			// before either has committed. The unique constraint at the DB level guarantees
-			// only one succeeds; the loser is caught here and surfaced as a clean domain exception.
 			log.warn("Duplicate account detected at persistence layer [document=...{}]", request.documentNumber());
 
 			throw new AccountAlreadyExistsException(request.documentNumber());
@@ -164,36 +145,5 @@ public class AccountService {
 
 			return AccountResponse.from(account);
 		});
-	}
-
-	private RetryListener accountRetryListener () {
-		return new RetryListener() {
-			@Override
-			public <T, E extends Throwable> void onError (
-				RetryContext context, RetryCallback<T, E> callback, Throwable t) {
-				int attempt = context.getRetryCount(); // 0-indexed; 0 = first failure
-				String action = (String) context.getAttribute("action");
-				String accountId = (String) context.getAttribute("accountId");
-
-				if (TransientExceptionClassifier.isRetryable(t)) {
-					log.warn(
-						"Optimistic-lock conflict on account {} action {} (attempt {}/{}), retrying…",
-						accountId,
-						action,
-						attempt + 1,
-						LOCK_RETRY_MAX_ATTEMPTS,
-						t
-					);
-
-					metrics.recordLockRetry(action != null ? action : "-", attempt + 1);
-				} else {
-					log.error("Non-retryable failure on account {} action {} (attempt {})",
-						accountId,
-						action,
-						attempt + 1,
-						t);
-				}
-			}
-		};
 	}
 }

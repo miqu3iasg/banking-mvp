@@ -2,6 +2,7 @@ package com.miqu3iasg.banking.transaction.domain;
 
 import com.miqu3iasg.banking.shared.domain.AuditableEntity;
 import com.miqu3iasg.banking.shared.domain.Money;
+import com.miqu3iasg.banking.transaction.exception.SameAccountTransferException;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -60,6 +61,10 @@ public class Transaction extends AuditableEntity {
 		String description,
 		String idempotencyKey
 	) {
+		if (destinationAccountId.equals(originAccountId)) {
+			throw new SameAccountTransferException(originAccountId);
+		}
+
 		requireAccountId(originAccountId);
 		requireAccountId(destinationAccountId);
 		requirePositiveAmount(amount);
