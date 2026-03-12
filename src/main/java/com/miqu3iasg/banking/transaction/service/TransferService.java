@@ -119,7 +119,8 @@ public class TransferService {
 
 		boolean firstIsOrigin = first.getId().equals(originId);
 
-		return new TransactionEventPublisher.AccountPair(firstIsOrigin ? first : second, firstIsOrigin ? second : first);
+		return new TransactionEventPublisher
+			.AccountPair(firstIsOrigin ? first : second, firstIsOrigin ? second : first);
 	}
 
 	private Account loadLockedAccount (UUID id) {

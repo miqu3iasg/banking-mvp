@@ -18,7 +18,7 @@ import java.util.UUID;
 	name = "transactions",
 	indexes = {
 		@Index(name = "idx_transactions_account_created", columnList = "account_id, created_at"),
-		@Index(name = "idx_transactions_idempotency", columnList = "idempotency_key", unique = true),
+		@Index(name = "idx_transactions_idempotency", columnList = "idempotency_key, type", unique = true),
 		@Index(name = "idx_transactions_reference", columnList = "reference_id")
 	}
 )
@@ -48,7 +48,7 @@ public class Transaction extends AuditableEntity {
 	@Column(name = "description")
 	private String description;
 
-	@Column(name = "idempotency_key", unique = true, nullable = false)
+	@Column(name = "idempotency_key", nullable = false)
 	private String idempotencyKey;
 
 	@Column(name = "reference_id")
@@ -82,7 +82,7 @@ public class Transaction extends AuditableEntity {
 			transferReferenceId
 		);
 
-	Transaction credit = create(
+		Transaction credit = create(
 			destinationAccountId,
 			originAccountId,
 			TransactionType.TRANSFER_CREDIT,

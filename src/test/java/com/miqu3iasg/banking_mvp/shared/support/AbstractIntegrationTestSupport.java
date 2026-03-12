@@ -17,6 +17,7 @@ import com.miqu3iasg.banking.transaction.domain.Transaction;
 import com.miqu3iasg.banking.transaction.domain.TransactionType;
 import com.miqu3iasg.banking.transaction.repository.TransactionRepository;
 import com.miqu3iasg.banking.transaction.service.DepositService;
+import com.miqu3iasg.banking.transaction.service.TransferService;
 import com.miqu3iasg.banking.transaction.service.WithdrawalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -101,6 +102,8 @@ public abstract class AbstractIntegrationTestSupport {
 	protected PixChargeRepository chargeRepository;
 	@Autowired
 	protected PixKeyRepository keyRepository;
+	@Autowired
+	protected TransferService transferService;
 
 	@Container
 	static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine")
@@ -155,20 +158,28 @@ public abstract class AbstractIntegrationTestSupport {
 
 	protected String generateCpf (int seed) {
 		int base = (seed + 1) * 13;
+
 		int[] digits = new int[11];
+
 		for (int i = 8; i >= 0; i--) {
 			digits[i] = base % 10;
 			base /= 10;
 		}
 
 		int sum = 0;
+
 		for (int i = 0; i < 9; i++) sum += digits[i] * (10 - i);
+
 		int remainder = sum % 11;
+
 		digits[9] = remainder < 2 ? 0 : 11 - remainder;
 
 		sum = 0;
+
 		for (int i = 0; i < 10; i++) sum += digits[i] * (11 - i);
+
 		remainder = sum % 11;
+
 		digits[10] = remainder < 2 ? 0 : 11 - remainder;
 
 		return String.format("%d%d%d.%d%d%d.%d%d%d-%d%d",
@@ -202,24 +213,22 @@ public abstract class AbstractIntegrationTestSupport {
 
 	protected Transaction requireTransaction (UUID id, String operationContext) {
 		return transactionRepository.findById(id)
-			.orElseThrow(() -> new AssertionError(
-				"Transaction row must exist after [" + operationContext + "] but was not found: id=" + id));
+			.orElseThrow(() -> new AssertionError("Transaction row must exist after [" + operationContext + "] but was not found: id=" + id));
 	}
 
 	protected Transaction requireTransactionByKey (String key) {
 		return transactionRepository.findByIdempotencyKey(key)
-			.orElseThrow(() -> new AssertionError(
-				"findByIdempotencyKey returned empty — index or mapping may be broken: key=" + key));
+			.orElseThrow(() -> new AssertionError("findByIdempotencyKey returned empty; index or mapping may be broken: key=" + key));
 	}
 
 	protected IdempotencyKey requireIdempotencyRecord (String key, String operationContext) {
 		return idempotencyKeyRepository.findByKey(key)
-			.orElseThrow(() -> new AssertionError(
-				"Idempotency record must be persisted after a successful [" + operationContext + "]: key=" + key));
+			.orElseThrow(() -> new AssertionError("Idempotency record must be persisted after a successful [" + operationContext + "]: key=" + key));
 	}
 
 	protected void clearAllCaches () {
-		cacheManager.getCacheNames().stream()
+		cacheManager.getCacheNames()
+			.stream()
 			.map(cacheManager::getCache)
 			.filter(Objects::nonNull)
 			.forEach(Cache::clear);

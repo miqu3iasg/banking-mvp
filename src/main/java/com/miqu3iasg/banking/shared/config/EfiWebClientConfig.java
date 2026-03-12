@@ -8,9 +8,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.core.io.Resource;
-import org.springframework.core.io.ResourceLoader;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
@@ -29,7 +27,6 @@ import java.time.Duration;
 @Configuration
 @EnableConfigurationProperties({EfiPixProperties.class, EfiBoletoProperties.class})
 public class EfiWebClientConfig {
-	private final ResourceLoader resourceLoader = new DefaultResourceLoader();
 
 	public EfiWebClientConfig () { }
 
