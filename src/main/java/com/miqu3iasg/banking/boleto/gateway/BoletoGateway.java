@@ -1,7 +1,7 @@
 package com.miqu3iasg.banking.boleto.gateway;
 
 public interface BoletoGateway {
-	BoletoIssuanceResponse issueBoleto (BoletoIssuanceRequest request);
+	BoletoIssuanceResponse issue (BoletoIssuanceRequest request);
 
 	String getChargeStatus (long chargeId);
 }

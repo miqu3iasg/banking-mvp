@@ -15,17 +15,14 @@ import com.miqu3iasg.banking.boleto.metrics.BoletoMetrics;
 import com.miqu3iasg.banking.boleto.repository.BoletoRepository;
 import com.miqu3iasg.banking.shared.domain.Money;
 import com.miqu3iasg.banking.shared.exception.AccountNotFoundException;
-import com.miqu3iasg.banking.shared.idempotency.IdempotencyService;
+import com.miqu3iasg.banking.shared.idempotency.IdempotentOperationExecutor;
 import com.miqu3iasg.banking.transaction.domain.Transaction;
 import com.miqu3iasg.banking.transaction.repository.TransactionRepository;
-import com.miqu3iasg.banking.transaction.service.TransactionCompletedEvent;
+import com.miqu3iasg.banking.transaction.service.TransactionEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -34,34 +31,44 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class BoletoService {
-	private static final String OPERATION_TYPE_ISSUE = "BOLETO_ISSUE";
-	private static final String OPERATION_TYPE_WEBHOOK = "BOLETO_WEBHOOK";
 
+	private static final String OPERATION_TYPE_ISSUE = "BOLETO_ISSUE";
+	private static final String WEBHOOK_PAYMENT = "BOLETO_WEBHOOK";
 	private static final String PROVIDER_STATUS_PAID = "paid";
 
 	private final BoletoRepository boletoRepository;
 	private final AccountRepository accountRepository;
 	private final TransactionRepository transactionRepository;
 	private final BoletoGateway boletoGateway;
-	private final IdempotencyService idempotencyService;
+	private final IdempotentOperationExecutor idempotentOperationExecutor;
+	private final TransactionEventPublisher transactionEventPublisher;
+	private final TransactionTemplate transactionTemplate;
 	private final EfiBoletoProperties props;
 	private final BoletoMetrics metrics;
-	private final ApplicationEventPublisher eventPublisher;
 
 	public IssueBoletoResponse issue (UUID accountId, IssueBoletoRequest request, String idempotencyKey) {
-		return idempotencyService
-			.findCachedResponse(idempotencyKey, IssueBoletoResponse.class)
-			.map(cached -> {
-				log.debug("Boleto issuance idempotency HIT: key=[{}]", idempotencyKey);
-				return cached;
-			})
-			.orElseGet(() -> executeIssuance(accountId, request, idempotencyKey));
-
+		return idempotentOperationExecutor.execute(
+			idempotencyKey,
+			OPERATION_TYPE_ISSUE,
+			IssueBoletoResponse.class,
+			() -> issueWithin(accountId, request)
+		);
 	}
 
-	@Transactional
-	private IssueBoletoResponse executeIssuance (UUID accountId, IssueBoletoRequest request, String idempotencyKey) {
-		return metrics.timeGatewayCall("issuance", () -> {
+	public void processWebhookPayment (long providerChargeId, Instant receivedAt, String idempotencyKey) {
+		idempotentOperationExecutor.execute(
+			idempotencyKey,
+			WEBHOOK_PAYMENT,
+			Void.class,
+			() -> {
+				paymentWebhookWithin(providerChargeId, receivedAt);
+				return null;
+			}
+		);
+	}
+
+	private IssueBoletoResponse issueWithin (UUID accountId, IssueBoletoRequest request) {
+		return transactionTemplate.execute(status -> {
 			accountRepository.findById(accountId)
 				.orElseThrow(() -> new AccountNotFoundException(accountId));
 
@@ -70,7 +77,7 @@ public class BoletoService {
 			Boleto boleto = Boleto.issue(
 				accountId,
 				request.payerName(),
-				request.payerDocument(),
+				normalizedDocument,
 				request.amount(),
 				request.dueDate(),
 				request.description()
@@ -79,13 +86,8 @@ public class BoletoService {
 			BoletoIssuanceRequest gatewayRequest = BoletoIssuanceRequest
 				.from(boleto, normalizedDocument, props.notificationUrl());
 
-			log.info("Issuing boleto: accountId={} payerDocument={} amount={} dueDate={}",
-				accountId,
-				normalizedDocument,
-				request.amount(),
-				request.dueDate());
-
-			BoletoIssuanceResponse gatewayResponse = boletoGateway.issueBoleto(gatewayRequest);
+			BoletoIssuanceResponse gatewayResponse = metrics
+				.timeBoletoIssuance(() -> boletoGateway.issue(gatewayRequest));
 
 			boleto.enrichWithProviderData(
 				gatewayResponse.providerChargeId(),
@@ -94,103 +96,87 @@ public class BoletoService {
 				gatewayResponse.pdfUrl()
 			);
 
-			Boleto saved = boletoRepository.save(boleto);
-
-			IssueBoletoResponse response = IssueBoletoResponse.from(saved);
-			idempotencyService.markProcessed(idempotencyKey, OPERATION_TYPE_ISSUE, response);
-
-			log.info("Boleto issued: id={} providerChargeId={} accountId={} amount={}",
-				saved.getId(),
-				saved.getProviderChargeId(),
-				accountId,
-				saved.getAmount());
+			boleto = boletoRepository.save(boleto);
 
 			metrics.recordBoletoIssued();
 
-			return response;
+			log.info("Boleto issued: accountId=[{}] id=[{}] providerChargeId=[{}] amount=[{}]",
+				accountId,
+				boleto.getId(),
+				boleto.getProviderChargeId(),
+				boleto.getAmount());
+
+			return IssueBoletoResponse.from(boleto);
 		});
 	}
 
-	@Transactional
-	public void processWebHookPayment (long providerChargeId, Instant receivedAt, String idempotencyKey) {
-		if (isAlreadyProcessed(idempotencyKey, providerChargeId)) return;
+	private void paymentWebhookWithin (long providerChargeId, Instant receivedAt) {
+		transactionTemplate.execute(status -> {
+			Boleto boleto = boletoRepository.findByProviderChargeId(providerChargeId)
+				.orElseThrow(() -> unrecognizedCharge(providerChargeId));
 
-		Boleto boleto = boletoRepository.findByProviderChargeId(providerChargeId)
-			.orElseThrow(() -> {
-				metrics.recordWebhookRejected("charge_not_found");
-				log.warn("Webhook received for unknown providerChargeId={}", providerChargeId);
-				return new BoletoNotFoundException(providerChargeId);
-			});
+			if (!boleto.getStatus().canTransitionTo(BoletoStatus.PAID)) {
+				log.info("Boleto providerChargeId=[{}] already in terminal status=[{}]; webhook ignored",
+					providerChargeId,
+					boleto.getStatus());
 
-		if (!boleto.getStatus().canTransitionTo(BoletoStatus.PAID)) {
-			log.info("Boleto providerChargeId={} already in terminal status={}; webhook ignored",
-				providerChargeId,
-				boleto.getStatus());
+				return null;
+			}
 
-			idempotencyService.markProcessed(idempotencyKey, OPERATION_TYPE_WEBHOOK, null);
-		}
+			String providerStatus = boletoGateway.getChargeStatus(providerChargeId);
 
-		String providerStatus = boletoGateway.getChargeStatus(providerChargeId);
+			if (!PROVIDER_STATUS_PAID.equalsIgnoreCase(providerStatus)) {
+				log.debug("Webhook for providerChargeId=[{}] ignored; provider status is '{}'",
+					providerChargeId,
+					providerStatus);
 
-		if (!PROVIDER_STATUS_PAID.equalsIgnoreCase(providerStatus)) {
-			log.debug("Webhook for providerChargeId={} ignored; provider status is '{}'",
-				providerChargeId,
-				providerStatus);
+				return null;
+			}
 
-			return;
-		}
+			Account account = accountRepository.findById(boleto.getAccountId())
+				.orElseThrow(() -> new AccountNotFoundException(boleto.getAccountId()));
 
-		Account account = accountRepository.findById(boleto.getAccountId())
-			.orElseThrow(() -> new AccountNotFoundException(boleto.getAccountId()));
+			applyPayment(boleto, account, receivedAt, providerChargeId);
 
-		Money creditAmount = Money.of(boleto.getAmount());
+			return null;
+		});
+	}
 
+	private void applyPayment (Boleto boleto, Account account, Instant receivedAt, long providerChargeId) {
 		boleto.markAsPaid(receivedAt);
-		account.credit(creditAmount);
+		boletoRepository.save(boleto);
 
-		var transaction = transactionRepository.save(
-			Transaction.credit(
-				account.getId(),
-				creditAmount,
-				"Boleto received; chargeId: " + providerChargeId,
-				String.valueOf(providerChargeId)
-			)
+		Money amount = Money.of(boleto.getAmount());
+		account.credit(amount);
+		accountRepository.save(account);
+
+		Transaction transaction = Transaction.credit(
+			account.getId(),
+			amount,
+			"Boleto received; chargeId: " + providerChargeId,
+			Long.toString(providerChargeId) // This is the idempotency key
 		);
 
-		idempotencyService.markProcessed(idempotencyKey, OPERATION_TYPE_WEBHOOK, null);
+		transactionRepository.save(transaction);
 
-		schedulePostCommitEvent(transaction);
+		transactionEventPublisher.schedulePostCommitEvent(transaction);
 
 		metrics.recordPaymentReceived();
 
-		log.info("Boleto payment recorded: id={} providerChargeId={} accountId={} amount={} receivedAt={}",
+		log.info("Boleto payment recorded: accountId=[{}] id=[{}] providerChargeId=[{}] amount=[{}] receivedAt=[{}]",
+			boleto.getAccountId(),
 			boleto.getId(),
 			providerChargeId,
-			boleto.getAccountId(),
 			boleto.getAmount(),
 			receivedAt);
 	}
 
-	private boolean isAlreadyProcessed (String idempotencyKey, long providerChargeId) {
-		boolean duplicate = idempotencyService.findCachedResponse(idempotencyKey, Void.class).isPresent();
-
-		if (duplicate) {
-			log.debug("Webhook already processed (idempotent): providerChargeId={} key={}",
-				providerChargeId, idempotencyKey);
-		}
-
-		return duplicate;
+	private BoletoNotFoundException unrecognizedCharge (long providerChargeId) {
+		metrics.recordWebhookRejected("charge_not_found");
+		log.warn("Webhook received for unknown providerChargeId=[{}]", providerChargeId);
+		return new BoletoNotFoundException(providerChargeId);
 	}
 
-	private void schedulePostCommitEvent (Transaction transaction) {
-		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-			@Override
-			public void afterCommit () {
-				eventPublisher.publishEvent(
-					TransactionCompletedEvent.ofSingleAccount(transaction));
-			}
-		});
-	}
 
 	private String normalizeDocument (String document) {
 		return document.replaceAll("[^0-9]", "");

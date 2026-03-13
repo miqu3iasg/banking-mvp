@@ -50,7 +50,7 @@ public class EfiBoletoGateway implements BoletoGateway {
 	}
 
 	@Override
-	public BoletoIssuanceResponse issueBoleto (BoletoIssuanceRequest request) {
+	public BoletoIssuanceResponse issue (BoletoIssuanceRequest request) {
 		log.info("Calling Efí Bank POST /v1/charge/one-step payerDocument={} amount={}",
 			request.payerDocument(), request.amount());
 

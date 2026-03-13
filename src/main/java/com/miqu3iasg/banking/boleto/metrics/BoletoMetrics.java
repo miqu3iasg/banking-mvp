@@ -16,8 +16,9 @@ public class BoletoMetrics {
 	private static final String PAYMENT_RECEIVED = "banking.boleto.payment.received.total";
 	private static final String WEBHOOK_REJECTED = "banking.boleto.webhook.rejected.total";
 	private static final String BOLETOS_EXPIRED = "banking.boleto.expired.total";
-	private static final String GATEWAY_ERRORS = "banking.boleto.errors.total";
+	private static final String GATEWAY_ERRORS = "banking.boleto.gateway.errors.total";
 	private static final String GATEWAY_DURATION = "banking.boleto.gateway.call.duration.seconds";
+	private static final String ISSUANCE_DURATION = "banking.boleto.issuance.duration.seconds";
 
 	private static final String TAG_OPERATION = "operation";
 	private static final String TAG_RESULT = "result";
@@ -25,9 +26,15 @@ public class BoletoMetrics {
 
 	private final MeterRegistry registry;
 	private final ConcurrentHashMap<String, Timer> gatewayTimers = new ConcurrentHashMap<>();
+	private final Timer issuanceTimer;
 
 	public BoletoMetrics (MeterRegistry registry) {
 		this.registry = registry;
+		this.issuanceTimer = Timer.builder(ISSUANCE_DURATION)
+			.description("End-to-end latency of boleto issuance gateway call")
+			.publishPercentileHistogram()
+			.sla(Duration.ofMillis(500), Duration.ofSeconds(2), Duration.ofSeconds(5))
+			.register(registry);
 	}
 
 	public <T> T timeGatewayCall (String operation, Supplier<T> supplier) {
@@ -46,6 +53,10 @@ public class BoletoMetrics {
 			recordGatewayError(operation, e.getClass().getSimpleName());
 			throw e;
 		}
+	}
+
+	public <T> T timeBoletoIssuance (Supplier<T> supplier) {
+		return issuanceTimer.record(supplier);
 	}
 
 	public void recordBoletoIssued () {

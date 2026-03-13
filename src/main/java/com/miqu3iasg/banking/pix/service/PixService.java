@@ -33,6 +33,7 @@ import java.util.UUID;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+// Fix this using transaction template
 public class PixService {
 	private static final String OPERATION_CREATE_CHARGE = "PIX_CREATE_CHARGE";
 	private static final String OPERATION_WEBHOOK_PAYMENT = "PIX_WEBHOOK_PAYMENT";

@@ -120,6 +120,10 @@ public class Boleto extends AuditableEntity {
 		return status == BoletoStatus.PENDING && LocalDate.now().isAfter(dueDate);
 	}
 
+	public boolean isPaid () {
+		return status == BoletoStatus.PAID;
+	}
+
 	private void requireCanTransitionTo (BoletoStatus target) {
 		if (!this.status.canTransitionTo(target)) {
 			throw new InvalidBoletoStateTransitionException(

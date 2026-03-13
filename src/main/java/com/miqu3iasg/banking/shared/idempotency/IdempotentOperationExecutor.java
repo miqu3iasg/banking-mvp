@@ -20,6 +20,12 @@ public class IdempotentOperationExecutor {
 		Class<T> responseType,
 		Supplier<T> action
 	) {
+		if (isVoid(responseType)) {
+			executeVoid(idempotencyKey, operation, action);
+
+			return null;
+		}
+
 		var cached = idempotencyService.findCachedResponse(idempotencyKey, responseType);
 		if (cached.isPresent()) {
 			log.debug("idempotency HIT: operation=[{}] key=[{}]", operation, idempotencyKey);
@@ -42,5 +48,25 @@ public class IdempotentOperationExecutor {
 			idempotencyService.deletePendingKey(idempotencyKey);
 			throw e;
 		}
+	}
+
+	private <T> void executeVoid (String idempotencyKey, String operation, Supplier<T> action) {
+		boolean winner = idempotencyService.claimKey(idempotencyKey, operation);
+		if (!winner) {
+			log.debug("Idempotency LOSER (void): operation=[{}] key=[{}]; duplicate suppressed", operation, idempotencyKey);
+			return;
+		}
+
+		try {
+			action.get();
+			idempotencyService.completeKey(idempotencyKey, operation, null);
+		} catch (Exception e) {
+			idempotencyService.deletePendingKey(idempotencyKey);
+			throw e;
+		}
+	}
+
+	private boolean isVoid (Class<?> type) {
+		return type == Void.class || type == void.class;
 	}
 }
