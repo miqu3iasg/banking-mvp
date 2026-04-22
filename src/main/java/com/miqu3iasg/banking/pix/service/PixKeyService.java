@@ -11,6 +11,7 @@ import com.miqu3iasg.banking.pix.exception.PixKeyAlreadyExistsException;
 import com.miqu3iasg.banking.pix.exception.PixKeyNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,6 +20,7 @@ import java.util.UUID;
 
 @Slf4j
 @Service
+@ConditionalOnProperty(name = "efi.webclient.enabled", havingValue = "true", matchIfMissing = true)
 @RequiredArgsConstructor
 @Transactional
 public class PixKeyService {

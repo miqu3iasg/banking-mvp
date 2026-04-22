@@ -15,7 +15,7 @@ class EfiAuthGatewayE2eTest extends AbstractE2eTestSupport {
 	@Test
 	@DisplayName("A valid credential set must return an opaque, non-blank token with no whitespace and a plausible length.")
 	void getAccessTokenReturnsValidOpaqueTokenOnFirstCall () {
-		String token = authGateway.getAccessToken();
+		String token = efiPixAuthGateway.getAccessToken();
 
 		assertThat(token)
 			.isNotBlank()
@@ -26,8 +26,8 @@ class EfiAuthGatewayE2eTest extends AbstractE2eTestSupport {
 	@Test
 	@DisplayName("Subsequent calls within the TTL window must return the same cached token without triggering a new network round-trip.")
 	void getAccessTokenReturnsSameTokenOnSubsequentCallWithinTtl () {
-		String first = authGateway.getAccessToken();
-		String second = authGateway.getAccessToken();
+		String first = efiPixAuthGateway.getAccessToken();
+		String second = efiPixAuthGateway.getAccessToken();
 
 		assertThat(second).isEqualTo(first);
 	}
@@ -41,7 +41,7 @@ class EfiAuthGatewayE2eTest extends AbstractE2eTestSupport {
 
 		assertThat(tokenCache.get("access_token")).isNull();
 
-		String refreshed = authGateway.getAccessToken();
+		String refreshed = efiPixAuthGateway.getAccessToken();
 
 		assertThat(refreshed)
 			.isNotBlank()
@@ -61,7 +61,7 @@ class EfiAuthGatewayE2eTest extends AbstractE2eTestSupport {
 
 		tokenCache.put("access_token", "deliberately-stale-token");
 
-		String returned = authGateway.getAccessToken();
+		String returned = efiPixAuthGateway.getAccessToken();
 
 		assertThat(returned)
 			.isNotBlank()
@@ -74,7 +74,7 @@ class EfiAuthGatewayE2eTest extends AbstractE2eTestSupport {
 		// Confirms the sandbox actually enforces authentication on /oauth/token.
 		// This documents the HTTP contract that the gateway's error-mapping code
 		// relies on to convert 401 responses into PixGatewayException.
-		unauthenticatedBasicSandboxClient()
+		unauthenticatedBasicPixSandboxClient()
 			.post()
 			.uri("/oauth/token")
 			.contentType(MediaType.APPLICATION_JSON)

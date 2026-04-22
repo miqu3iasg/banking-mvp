@@ -9,8 +9,8 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Getter
-@Entity
-@Table(name = "audit_log", indexes = {
+@Entity(name = "SharedAuditLog")
+@Table(name = "shared_audit_log", indexes = {
 	@Index(name = "idx_audit_entity", columnList = "entity_type, entity_id"),
 	@Index(name = "idx_audit_actor", columnList = "actor_id"),
 	@Index(name = "idx_audit_created_at", columnList = "created_at")

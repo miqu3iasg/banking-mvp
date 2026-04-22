@@ -1,6 +1,7 @@
 package com.miqu3iasg.banking.shared.config;
 
 import com.miqu3iasg.banking.account.service.AccountMetrics;
+import com.miqu3iasg.banking.pix.exception.BoletoAuthenticationException;
 import com.miqu3iasg.banking.pix.exception.PixAuthenticationException;
 import com.miqu3iasg.banking.shared.observability.RetryMetrics;
 import com.miqu3iasg.banking.transaction.listener.TransactionRetryListener;
@@ -33,9 +34,14 @@ public class RetryConfig {
 	private final TransactionMetrics transactionMetrics;
 	private final AccountMetrics accountMetrics;
 
-	@Bean("efiRetryTemplate")
-	public RetryTemplate efiRetryTemplate () {
+	@Bean("efiPixRetryTemplate")
+	public RetryTemplate efiPixRetryTemplate () {
 		return buildTemplate(Map.of(PixAuthenticationException.class, true), null);
+	}
+
+	@Bean("efiBoletoRetryTemplate")
+	public RetryTemplate efiBoletoRetryTemplate () {
+		return buildTemplate(Map.of(BoletoAuthenticationException.class, true), null);
 	}
 
 	@Bean("accountLockRetryTemplate")

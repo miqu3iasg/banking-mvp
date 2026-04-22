@@ -3,6 +3,8 @@ package com.miqu3iasg.banking.transaction.listener;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.miqu3iasg.banking.shared.outbox.OutboxEvent;
 import com.miqu3iasg.banking.shared.outbox.OutboxRepository;
+import com.miqu3iasg.banking.transaction.audit.TransactionAuditPayload;
+import com.miqu3iasg.banking.transaction.audit.TransactionAuditRetryPayload;
 import com.miqu3iasg.banking.transaction.audit.TransactionAuditService;
 import com.miqu3iasg.banking.transaction.service.TransactionCompletedEvent;
 import lombok.RequiredArgsConstructor;
@@ -19,12 +21,12 @@ public class TransactionEventListener {
 	private static final int PAYLOAD_SCHEMA_VERSION = 1;
 	private static final String AUDIT_RETRY_EVENT_TYPE = "TRANSACTION_AUDIT_RETRY";
 	private static final String PAYLOAD_SERIALIZATION_FAILED_TEMPLATE = """
-		{
-			"schemaVersion": %d,
-			"transactionId": "%s",
-			"status": "PAYLOAD_SERIALIZATION_FAILED"
-		}
-		""";
+			{
+				"schemaVersion": %d,
+				"transactionId": "%s",
+				"status": "PAYLOAD_SERIALIZATION_FAILED"
+			}
+			""";
 
 	private final OutboxRepository outboxRepository;
 	private final ObjectMapper objectMapper;
@@ -90,7 +92,7 @@ public class TransactionEventListener {
 
 	private String buildPayload (TransactionCompletedEvent event) {
 		try {
-			return objectMapper.writeValueAsString(new RetryPayload(
+			return objectMapper.writeValueAsString(new TransactionAuditRetryPayload(
 				PAYLOAD_SCHEMA_VERSION,
 				event.transactionId().toString(),
 				event.accountId().toString(),
@@ -100,7 +102,8 @@ public class TransactionEventListener {
 				event.amount().amount().toPlainString(),
 				event.amount().currency().getCurrencyCode(),
 				event.referenceId(),
-				event.occurredAt().toString()
+				event.occurredAt().toString(),
+				event.description()
 			));
 		} catch (Exception e) {
 			log.error(
@@ -117,17 +120,4 @@ public class TransactionEventListener {
 				);
 		}
 	}
-
-	private record RetryPayload(
-		int schemaVersion,
-		String transactionId,
-		String accountId,
-		String counterpartAccountId,
-		String type,
-		String status,
-		String amount,
-		String currency,
-		String referenceId,
-		String occurredAt
-	) { }
 }
