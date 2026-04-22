@@ -21,6 +21,7 @@ import com.miqu3iasg.banking.transaction.repository.TransactionRepository;
 import com.miqu3iasg.banking.transaction.service.TransactionEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -28,6 +29,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Slf4j
+@ConditionalOnProperty(name = "efi.webclient.enabled", havingValue = "true", matchIfMissing = true)
 @Service
 @RequiredArgsConstructor
 public class BoletoService {
@@ -78,6 +80,7 @@ public class BoletoService {
 				accountId,
 				request.payerName(),
 				normalizedDocument,
+				request.address().toDomain(),
 				request.amount(),
 				request.dueDate(),
 				request.description()
@@ -177,8 +180,12 @@ public class BoletoService {
 		return new BoletoNotFoundException(providerChargeId);
 	}
 
-
 	private String normalizeDocument (String document) {
 		return document.replaceAll("[^0-9]", "");
+	}
+
+	public Boleto findById (UUID boletoId) {
+		return boletoRepository.findById(boletoId)
+			.orElseThrow(() -> new BoletoNotFoundException(boletoId));
 	}
 }

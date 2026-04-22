@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -53,6 +54,7 @@ import java.util.List;
  * <p>Reference: <a href="https://dev.efipay.com.br/docs/api-pix/chaves-pix">Efí Bank — Chaves PIX (EVP)</a>
  */
 @Slf4j
+@ConditionalOnProperty(name = "efi.webclient.enabled", havingValue = "true", matchIfMissing = true)
 @Component
 public class EfiEvpGateway {
 

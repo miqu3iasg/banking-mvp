@@ -3,12 +3,14 @@ package com.miqu3iasg.banking.boleto.metrics;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
+@ConditionalOnProperty(name = "efi.webclient.enabled", havingValue = "true", matchIfMissing = true)
 @Component
 public class BoletoMetrics {
 
@@ -17,12 +19,14 @@ public class BoletoMetrics {
 	private static final String WEBHOOK_REJECTED = "banking.boleto.webhook.rejected.total";
 	private static final String BOLETOS_EXPIRED = "banking.boleto.expired.total";
 	private static final String GATEWAY_ERRORS = "banking.boleto.gateway.errors.total";
+	private static final String GATEWAY_RETRIES = "banking.boleto.gateway.retries.total";
 	private static final String GATEWAY_DURATION = "banking.boleto.gateway.call.duration.seconds";
 	private static final String ISSUANCE_DURATION = "banking.boleto.issuance.duration.seconds";
 
 	private static final String TAG_OPERATION = "operation";
 	private static final String TAG_RESULT = "result";
 	private static final String TAG_REASON = "reason";
+	private static final String TAG_ATTEMPT = "attempt";
 
 	private final MeterRegistry registry;
 	private final ConcurrentHashMap<String, Timer> gatewayTimers = new ConcurrentHashMap<>();
@@ -96,6 +100,15 @@ public class BoletoMetrics {
 			.description("Total errors in the boleto gateway layer")
 			.tag(TAG_OPERATION, operation)
 			.tag("error_class", errorClass)
+			.register(registry)
+			.increment();
+	}
+
+	public void recordGatewayRetry (String operation, int attempt) {
+		Counter.builder(GATEWAY_RETRIES)
+			.description("Total retry attempts on transient Efí Bank errors")
+			.tag(TAG_OPERATION, operation)
+			.tag(TAG_ATTEMPT, String.valueOf(attempt))
 			.register(registry)
 			.increment();
 	}

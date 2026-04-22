@@ -24,6 +24,7 @@ import com.miqu3iasg.banking.transaction.repository.TransactionRepository;
 import com.miqu3iasg.banking.transaction.service.TransactionEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +32,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Slf4j
+@ConditionalOnProperty(name = "efi.webclient.enabled", havingValue = "true", matchIfMissing = true)
 @Service
 @RequiredArgsConstructor
 // Fix this using transaction template

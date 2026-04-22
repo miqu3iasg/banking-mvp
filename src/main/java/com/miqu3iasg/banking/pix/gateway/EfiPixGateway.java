@@ -19,6 +19,7 @@ import org.springframework.retry.RetryCallback;
 import org.springframework.retry.RetryContext;
 import org.springframework.retry.RetryListener;
 import org.springframework.retry.support.RetryTemplate;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
@@ -28,6 +29,7 @@ import java.util.Map;
 import java.util.Optional;
 
 @Slf4j
+@ConditionalOnProperty(name = "efi.webclient.enabled", havingValue = "true", matchIfMissing = true)
 @Component
 public class EfiPixGateway implements PixGateway {
 	private static final int CNPJ_LENGTH = 14;
@@ -46,7 +48,7 @@ public class EfiPixGateway implements PixGateway {
 		PixMetrics metrics,
 		CacheManager cacheManager,
 		RetryProperties props,
-		@Qualifier("efiRetryTemplate") RetryTemplate retryTemplate
+		@Qualifier("efiPixRetryTemplate") RetryTemplate retryTemplate
 	) {
 		this.webClient = webClient;
 		this.authGateway = authGateway;

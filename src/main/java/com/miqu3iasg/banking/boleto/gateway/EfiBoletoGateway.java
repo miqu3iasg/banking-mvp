@@ -1,16 +1,25 @@
 package com.miqu3iasg.banking.boleto.gateway;
 
 import com.miqu3iasg.banking.boleto.config.EfiBoletoProperties;
+import com.miqu3iasg.banking.boleto.domain.Address;
 import com.miqu3iasg.banking.boleto.exception.BoletoGatewayException;
 import com.miqu3iasg.banking.boleto.gateway.dto.EfiGetChargeDetailResponse;
 import com.miqu3iasg.banking.boleto.gateway.dto.EfiIssueBoletoRequest;
 import com.miqu3iasg.banking.boleto.gateway.dto.EfiIssueBoletoResponse;
 import com.miqu3iasg.banking.boleto.metrics.BoletoMetrics;
+import com.miqu3iasg.banking.pix.exception.BoletoAuthenticationException;
+import com.miqu3iasg.banking.shared.config.RetryProperties;
+import com.miqu3iasg.banking.shared.exception.TransientExceptionClassifier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.CacheManager;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.retry.RetryCallback;
+import org.springframework.retry.RetryContext;
+import org.springframework.retry.RetryListener;
+import org.springframework.retry.support.RetryTemplate;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
@@ -22,8 +31,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @Slf4j
+@ConditionalOnProperty(name = "efi.webclient.enabled", havingValue = "true", matchIfMissing = true)
 @Component
-// TODO: add retry with exponencial backoff
 public class EfiBoletoGateway implements BoletoGateway {
 
 	private static final int CNPJ_LENGTH = 14;
@@ -34,19 +43,26 @@ public class EfiBoletoGateway implements BoletoGateway {
 	private final EfiBoletoProperties props;
 	private final BoletoMetrics metrics;
 	private final CacheManager cacheManager;
+	private final RetryProperties retryProps;
+	private final RetryTemplate retryTemplate;
 
 	public EfiBoletoGateway (
 		@Qualifier("efiBoletoWebClient") WebClient webClient,
 		EfiBoletoAuthGateway authGateway,
 		EfiBoletoProperties props,
 		BoletoMetrics metrics,
-		CacheManager cacheManager
+		CacheManager cacheManager,
+		RetryProperties retryProps,
+		@Qualifier("efiBoletoRetryTemplate") RetryTemplate retryTemplate
 	) {
 		this.webClient = webClient;
 		this.authGateway = authGateway;
 		this.props = props;
 		this.metrics = metrics;
 		this.cacheManager = cacheManager;
+		this.retryProps = retryProps;
+		this.retryTemplate = retryTemplate;
+		this.retryTemplate.registerListener(efiRetryListener());
 	}
 
 	@Override
@@ -54,114 +70,173 @@ public class EfiBoletoGateway implements BoletoGateway {
 		log.info("Calling Efí Bank POST /v1/charge/one-step payerDocument={} amount={}",
 			request.payerDocument(), request.amount());
 
-		return metrics.timeGatewayCall("issueBoleto", () -> {
-			var token = authGateway.getAccessToken();
-			var body = toEfiRequest(request);
+		return metrics.timeGatewayCall("issueBoleto", () ->
+			retryTemplate.execute(context -> {
+				context.setAttribute("operation", "issueBoleto");
 
-			var response = webClient.post()
-				.uri("/v1/charge/one-step")
-				.header("Authorization", "Bearer " + token)
-				.bodyValue(body)
-				.retrieve()
-				.onStatus(HttpStatusCode::isError, clientResponse ->
-					clientResponse
-						.bodyToMono(String.class)
-						.flatMap(errorBody -> {
-							if (clientResponse.statusCode() == HttpStatus.UNAUTHORIZED) {
-								evictTokenCache();
-							}
+				var token = authGateway.getAccessToken();
+				var body = toEfiRequest(request);
 
-							log.error("Efí Bank issueBoleto error: status={} body={}", clientResponse.statusCode(), errorBody);
+				var response = webClient.post()
+					.uri("/v1/charge/one-step")
+					.header("Authorization", "Bearer " + token)
+					.bodyValue(body)
+					.retrieve()
+					.onStatus(HttpStatusCode::isError, clientResponse ->
+						clientResponse
+							.bodyToMono(String.class)
+							.flatMap(errorBody -> {
+								if (clientResponse.statusCode() == HttpStatus.UNAUTHORIZED) {
+									evictTokenCache();
 
-							return Mono.error(new BoletoGatewayException(
-								"Efí Bank returned %s for issueBoleto: %s".formatted(clientResponse.statusCode(), errorBody)
-							));
-						})
-				)
-				.bodyToMono(EfiIssueBoletoResponse.class)
-				.block(Duration.ofSeconds(30));
+									return Mono.error(new BoletoAuthenticationException(
+											"Efí Bank 401 on createCharge; token evicted, will retry: " + errorBody
+										)
+									);
+								}
 
-			if (response == null || response.data() == null) {
-				throw new BoletoGatewayException("Efí Bank returned empty body for issueBoleto");
-			}
+								log.error("Efí Bank issueBoleto error: status={} body={}",
+									clientResponse.statusCode(),
+									errorBody
+								);
 
-			var data = response.data();
-			var pdfUrl = data.pdf() != null ? data.pdf().charge() : null;
+								return Mono.error(new BoletoGatewayException(
+									"Efí Bank returned %s for issueBoleto: %s"
+										.formatted(clientResponse.statusCode(), errorBody)
+								));
+							})
+					)
+					.bodyToMono(EfiIssueBoletoResponse.class)
+					.block(Duration.ofSeconds(30));
 
-			log.info("Efí Bank issueBoleto success: chargeId={} status={}", data.chargeId(), data.status());
+				if (response == null || response.data() == null) {
+					throw new BoletoGatewayException("Efí Bank returned empty body for issueBoleto");
+				}
 
-			metrics.recordBoletoIssued();
+				var data = response.data();
+				var pdfUrl = data.pdf() != null ? data.pdf().charge() : null;
 
-			return new BoletoIssuanceResponse(
-				data.chargeId(),
-				data.barcode(),
-				data.billetLink(),
-				pdfUrl
-			);
-		});
+				log.info("Efí Bank issueBoleto success: chargeId={} status={}", data.chargeId(), data.status());
+
+				metrics.recordBoletoIssued();
+
+				return new BoletoIssuanceResponse(
+					data.chargeId(),
+					data.barcode(),
+					data.billetLink(),
+					pdfUrl
+				);
+			})
+		);
 	}
 
 	@Override
 	public String getChargeStatus (long chargeId) {
 		log.debug("Calling Efí Bank GET /v1/charge/{}", chargeId);
 
-		return metrics.timeGatewayCall("getChargeStatus", () -> {
-			var token = authGateway.getAccessToken();
+		return metrics.timeGatewayCall("getChargeStatus", () ->
+			retryTemplate.execute(context -> {
+				context.setAttribute("operation", "getChargeStatus");
 
-			var response = webClient.get()
-				.uri(props.baseUrl() + "/v1/charge/{id}", chargeId)
-				.header("Authorization", "Bearer " + token)
-				.retrieve()
-				.onStatus(HttpStatusCode::isError, clientResponse ->
-					clientResponse
-						.bodyToMono(String.class)
-						.flatMap(errorBody -> {
-							if (clientResponse.statusCode() == HttpStatus.UNAUTHORIZED) {
-								evictTokenCache();
-							}
+				var token = authGateway.getAccessToken();
 
-							return Mono.error(new BoletoGatewayException(
-								"Efí Bank getChargeStatus error %s: %s".formatted(clientResponse.statusCode(), errorBody)
-							));
-						})
-				)
-				.bodyToMono(EfiGetChargeDetailResponse.class)
-				.block(Duration.ofSeconds(15));
+				var response = webClient.get()
+					.uri(props.baseUrl() + "/v1/charge/{id}", chargeId)
+					.header("Authorization", "Bearer " + token)
+					.retrieve()
+					.onStatus(HttpStatusCode::isError, clientResponse ->
+						clientResponse
+							.bodyToMono(String.class)
+							.flatMap(errorBody -> {
+								if (clientResponse.statusCode() == HttpStatus.UNAUTHORIZED) {
+									evictTokenCache();
 
-			if (response == null || response.data() == null) {
-				throw new BoletoGatewayException("Efí Bank returned empty body for getChargeStatus chargeId=" + chargeId);
+									return Mono.error(new BoletoAuthenticationException(
+											"Efí Bank 401 on createCharge; token evicted, will retry: " + errorBody
+										)
+									);
+								}
+
+								return Mono.error(new BoletoGatewayException(
+									"Efí Bank getChargeStatus error %s: %s".formatted(clientResponse.statusCode(), errorBody)
+								));
+							})
+					)
+					.bodyToMono(EfiGetChargeDetailResponse.class)
+					.block(Duration.ofSeconds(15));
+
+				if (response == null || response.data() == null) {
+					throw new BoletoGatewayException("Efí Bank returned empty body for getChargeStatus chargeId=" + chargeId);
+				}
+
+				log.debug("Efí Bank getChargeStatus chargeId={} status={}", chargeId, response.data().status());
+
+				return response.data().status();
+			})
+		);
+	}
+
+	private RetryListener efiRetryListener () {
+		return new RetryListener() {
+			@Override
+			public <T, E extends Throwable> void onError (
+				RetryContext context, RetryCallback<T, E> callback, Throwable t) {
+				int attempt = context.getRetryCount(); // 0-indexed; 0 = first failure
+				String operation = (String) context.getAttribute("operation");
+
+				if (TransientExceptionClassifier.isRetryable(t)) {
+					log.warn("Efí Bank transient error on {} (attempt {}/{}), retrying…",
+						operation,
+						attempt + 1,
+						retryProps.maxAttempts(),
+						t);
+
+					metrics.recordGatewayRetry(operation != null ? operation : "-", attempt + 1);
+				} else {
+					log.error("Non-retryable failure on Efí Bank {} (attempt {})",
+						operation,
+						attempt + 1, t);
+				}
+
+				log.error("Efí Bank {} attempt {} failed for: {}",
+					operation,
+					attempt + 1,
+					t.getMessage());
 			}
-
-			log.debug("Efí Bank getChargeStatus chargeId={} status={}", chargeId, response.data().status());
-
-			return response.data().status();
-		});
+		};
 	}
 
 	private EfiIssueBoletoRequest toEfiRequest (BoletoIssuanceRequest req) {
+		var efiAddress = toEfiAddress(req.payerAddress());
+
 		var customer = req.payerDocument().length() == CNPJ_LENGTH
-			? EfiIssueBoletoRequest.Customer.cnpj(req.payerName(), req.payerDocument())
-			: EfiIssueBoletoRequest.Customer.cpf(req.payerName(), req.payerDocument());
+			? EfiIssueBoletoRequest.Customer.cnpj(req.payerName(), req.payerDocument(), efiAddress)
+			: EfiIssueBoletoRequest.Customer.cpf(req.payerName(), req.payerDocument(), efiAddress);
 
 		int amountInCents = req.amount()
 			.multiply(BigDecimal.valueOf(100))
 			.setScale(0, RoundingMode.HALF_UP)
 			.intValueExact();
 
-		var billet = new EfiIssueBoletoRequest.BankingBillet(
-			customer,
-			req.dueDate().format(DATE_FORMAT),
-			req.description()
-		);
-
+		var billet = new EfiIssueBoletoRequest.BankingBillet(customer, req.dueDate().format(DATE_FORMAT), req.description());
 		var metadata = new EfiIssueBoletoRequest.Metadata(req.notificationUrl(), null);
-
-		var item = new EfiIssueBoletoRequest.Item(req.description(), 1, amountInCents);
+		var item = new EfiIssueBoletoRequest.Item(req.description(), amountInCents, 1);
 
 		return new EfiIssueBoletoRequest(
 			List.of(item),
 			metadata,
 			new EfiIssueBoletoRequest.Payment(billet)
+		);
+	}
+
+	private EfiIssueBoletoRequest.Address toEfiAddress (Address address) {
+		return new EfiIssueBoletoRequest.Address(
+			address.getStreet(),
+			address.getNumber(),
+			address.getNeighborhood(),
+			address.getZipcode(),
+			address.getCity(),
+			address.getState()
 		);
 	}
 

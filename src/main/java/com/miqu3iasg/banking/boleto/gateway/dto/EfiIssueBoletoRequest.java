@@ -18,7 +18,6 @@ public record EfiIssueBoletoRequest(
 	Payment payment
 ) {
 
-	// TODO: fix this
 	@JsonInclude(JsonInclude.Include.NON_NULL)
 	public record Item(
 		String name,
@@ -48,22 +47,33 @@ public record EfiIssueBoletoRequest(
 	public record Customer(
 		String name,
 		String cpf,
-		@JsonProperty("juridical_person") JuridicalPerson juridicalPerson
+		@JsonProperty("juridical_person") JuridicalPerson juridicalPerson,
+		Address address
 	) {
 		/**
 		 * Factory for CPF (natural person) customer.
 		 */
-		public static Customer cpf (String name, String cpf) {
-			return new Customer(name, cpf, null);
+		public static Customer cpf (String name, String cpf, Address address) {
+			return new Customer(name, cpf, null, address);
 		}
 
 		/**
 		 * Factory for CNPJ (legal entity) customer.
 		 */
-		public static Customer cnpj (String corporateName, String cnpj) {
-			return new Customer(null, null, new JuridicalPerson(corporateName, cnpj));
+		public static Customer cnpj (String corporateName, String cnpj, Address address) {
+			return new Customer(null, null, new JuridicalPerson(corporateName, cnpj), address);
 		}
 	}
+
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	public record Address(
+		String street,
+		String number,
+		String neighborhood,
+		String zipcode,
+		String city,
+		String state
+	) { }
 
 	@JsonInclude(JsonInclude.Include.NON_NULL)
 	public record JuridicalPerson(

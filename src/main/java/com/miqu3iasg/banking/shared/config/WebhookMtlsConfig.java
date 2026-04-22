@@ -2,12 +2,14 @@ package com.miqu3iasg.banking.shared.config;
 
 import com.miqu3iasg.banking.pix.config.EfiPixProperties;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
 // The mTLS enforcement happens at the infrastructure layer (ALB or Nginx)
 @Slf4j
 @Configuration
+@ConditionalOnProperty(name = "efi.webclient.enabled", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties(EfiPixProperties.class)
 public class WebhookMtlsConfig {
 

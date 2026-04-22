@@ -4,6 +4,7 @@ import com.miqu3iasg.banking.boleto.config.EfiBoletoProperties;
 import com.miqu3iasg.banking.pix.config.EfiPixProperties;
 import io.netty.handler.ssl.SslContextBuilder;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -25,6 +26,7 @@ import java.time.Duration;
 
 @Slf4j
 @Configuration
+@ConditionalOnProperty(name = "efi.webclient.enabled", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties({EfiPixProperties.class, EfiBoletoProperties.class})
 public class EfiWebClientConfig {
 
@@ -98,9 +100,9 @@ public class EfiWebClientConfig {
 	private KeyManagerFactory buildKeyManagerFactory (EfiProperties props) throws Exception {
 		var keyStore = KeyStore.getInstance("PKCS12");
 
-		char[] keyEntryPassword = (props.certificatePassword() != null && !props.certificatePassword().isBlank())
-			? props.certificatePassword().toCharArray()
-			: new char[0];
+		char[] keyEntryPassword = isEffectivelyEmpty(props.certificatePassword())
+			? new char[0]
+			: props.certificatePassword().toCharArray();
 
 		char[] macPassword = keyEntryPassword.length > 0 ? keyEntryPassword : null;
 
@@ -166,5 +168,10 @@ public class EfiWebClientConfig {
 		}
 
 		return Files.newInputStream(filePath);
+	}
+
+	private static boolean isEffectivelyEmpty (String value) {
+		final String unresolvedSpringPlaceholder = "${";
+		return value == null || value.isBlank() || value.startsWith(unresolvedSpringPlaceholder);
 	}
 }

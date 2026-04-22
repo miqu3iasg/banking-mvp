@@ -23,11 +23,23 @@ import java.util.UUID;
 	}
 )
 public class Boleto extends AuditableEntity {
+
 	@Column(name = "account_id", nullable = false, updatable = false)
 	private UUID accountId;
 
 	@Column(name = "payer_name", nullable = false, length = 200)
 	private String payerName;
+
+	@Embedded
+	@AttributeOverrides({
+		@AttributeOverride(name = "street", column = @Column(name = "payer_street", nullable = false, length = 200)),
+		@AttributeOverride(name = "number", column = @Column(name = "payer_number", nullable = false, length = 20)),
+		@AttributeOverride(name = "neighborhood", column = @Column(name = "payer_neighborhood", nullable = false, length = 100)),
+		@AttributeOverride(name = "zipcode", column = @Column(name = "payer_zipcode", nullable = false, length = 8)),
+		@AttributeOverride(name = "city", column = @Column(name = "payer_city", nullable = false, length = 100)),
+		@AttributeOverride(name = "state", column = @Column(name = "payer_state", nullable = false, length = 2))
+	})
+	private Address payerAddress;
 
 	@Column(name = "payer_document", nullable = false, length = 14)
 	private String payerDocument;
@@ -75,6 +87,7 @@ public class Boleto extends AuditableEntity {
 		UUID accountId,
 		String payerName,
 		String payerDocument,
+		Address payerAddress,
 		BigDecimal amount,
 		LocalDate dueDate,
 		String description
@@ -82,7 +95,6 @@ public class Boleto extends AuditableEntity {
 		if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
 			throw new IllegalArgumentException("Boleto amount must be positive, got: " + amount);
 		}
-
 		if (dueDate == null || !dueDate.isAfter(LocalDate.now())) {
 			throw new IllegalArgumentException("Boleto due date must be in the future, got: " + dueDate);
 		}
@@ -91,6 +103,7 @@ public class Boleto extends AuditableEntity {
 		boleto.accountId = accountId;
 		boleto.payerName = payerName;
 		boleto.payerDocument = payerDocument;
+		boleto.payerAddress = payerAddress;
 		boleto.amount = amount;
 		boleto.dueDate = dueDate;
 		boleto.description = description;
@@ -133,5 +146,4 @@ public class Boleto extends AuditableEntity {
 			);
 		}
 	}
-
 }

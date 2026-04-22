@@ -1,5 +1,6 @@
 package com.miqu3iasg.banking.shared.exception;
 
+import com.miqu3iasg.banking.pix.exception.BoletoAuthenticationException;
 import com.miqu3iasg.banking.pix.exception.PixAuthenticationException;
 import jakarta.persistence.OptimisticLockException;
 import org.springframework.dao.TransientDataAccessException;
@@ -10,6 +11,7 @@ public class TransientExceptionClassifier {
 	public static boolean isRetryable (Throwable t) {
 		return t instanceof OptimisticLockException
 			|| t instanceof TransientDataAccessException
+			|| t instanceof BoletoAuthenticationException
 			|| t instanceof PixAuthenticationException;
 	}
 

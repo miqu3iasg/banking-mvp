@@ -68,7 +68,7 @@ class EfiPixGatewayE2eTest extends AbstractE2eTestSupport {
 	void createChargeRawHttpSandboxReturns201WithFullChargePayload () {
 		activeTxid = generateTxid();
 
-		sandboxClient()
+		pixSandboxClient()
 			.put()
 			.uri("/v2/cob/{txid}", activeTxid)
 			.contentType(MediaType.APPLICATION_JSON)
@@ -89,7 +89,7 @@ class EfiPixGatewayE2eTest extends AbstractE2eTestSupport {
 	@Test
 	@DisplayName("Sandbox must enforce authentication by returning 401 when an invalid bearer token is provided.")
 	void createChargeRawHttpSandboxReturns401WhenBearerTokenIsInvalid () {
-		unauthenticatedBearerSandboxClient()
+		unauthenticatedBasicPixSandboxClient()
 			.put()
 			.uri("/v2/cob/{txid}", generateTxid())
 			.contentType(MediaType.APPLICATION_JSON)
@@ -140,7 +140,7 @@ class EfiPixGatewayE2eTest extends AbstractE2eTestSupport {
 			.atMost(5, TimeUnit.SECONDS)
 			.pollInterval(500, TimeUnit.MILLISECONDS)
 			.untilAsserted(() ->
-				sandboxClient()
+				pixSandboxClient()
 					.get()
 					.uri("/v2/cob/{txid}", activeTxid)
 					.exchange()
@@ -173,7 +173,7 @@ class EfiPixGatewayE2eTest extends AbstractE2eTestSupport {
 	@Test
 	@DisplayName("The first call to obtain an access token must return a valid opaque non-blank string with no whitespace.")
 	void getAccessTokenReturnsValidOpaqueTokenOnFirstCall () {
-		String token = authGateway.getAccessToken();
+		String token = efiPixAuthGateway.getAccessToken();
 
 		assertThat(token)
 			.isNotBlank()
@@ -184,8 +184,8 @@ class EfiPixGatewayE2eTest extends AbstractE2eTestSupport {
 	@Test
 	@DisplayName("Subsequent calls within the TTL window must return the same cached token without triggering a new network round-trip.")
 	void getAccessTokenReturnsSameTokenOnSubsequentCallWithinTtl () {
-		String first = authGateway.getAccessToken();
-		String second = authGateway.getAccessToken();
+		String first = efiPixAuthGateway.getAccessToken();
+		String second = efiPixAuthGateway.getAccessToken();
 
 		assertThat(second).isEqualTo(first);
 	}
