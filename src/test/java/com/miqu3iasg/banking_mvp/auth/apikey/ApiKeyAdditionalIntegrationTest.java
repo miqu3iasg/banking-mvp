@@ -10,11 +10,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.EntityExchangeResult;
 
-import java.time.Instant;
 import java.util.EnumSet;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.notNullValue;
 
 class ApiKeyAdditionalIntegrationTest extends AbstractAuthIntegrationTest {
 
@@ -52,7 +52,9 @@ class ApiKeyAdditionalIntegrationTest extends AbstractAuthIntegrationTest {
                 .expectStatus()
                 .isOk()
                 .expectBody()
-                .jsonPath("$.keyPrefix").value(prefix -> assertThat(prefix).asString().startsWith("bk_"));
+                .jsonPath("$.keyPrefix").value(keyPrefix -> {
+                    assertThat(keyPrefix.toString()).startsWith("bk_");
+                });
     }
 
     @Test
@@ -89,8 +91,8 @@ class ApiKeyAdditionalIntegrationTest extends AbstractAuthIntegrationTest {
                 .expectStatus()
                 .isOk()
                 .expectBody()
-                .jsonPath("$.rawKey").exists()
-                .jsonPath("$.keyPrefix").exists();
+                .jsonPath("$.rawKey").value(notNullValue())
+                .jsonPath("$.keyPrefix").value(notNullValue());
     }
 
     private String extractField(byte[] json, String field) throws Exception {

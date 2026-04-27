@@ -14,6 +14,8 @@ import java.util.EnumSet;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.startsWith;
 
 class ApiKeyControllerIntegrationTest extends AbstractAuthIntegrationTest {
 
@@ -62,13 +64,14 @@ class ApiKeyControllerIntegrationTest extends AbstractAuthIntegrationTest {
                 .expectStatus()
                 .isOk()
                 .expectBody()
-                .jsonPath("$[0].keyPrefix").value(prefix -> prefix.startsWith("bk_"));
+                .jsonPath("$[0].keyPrefix")
+                .value(startsWith("bk_"));
     }
 
     @Test
     void getApiKey_returnsDetails() throws Exception {
         User user = factory.createUser(AccountStatus.ACTIVE);
-        String token = jwtHelper.generateValidToken(user.getId(), user.getId().toString(), Set.of("ROLE_USER"));
+        String token = jwtHelper.generateValidToken(user.getId(), user.getEmail(), Set.of("ROLE_USER"));
 
         // Create an API key first
         String rawKey = factory.createApiKey(EnumSet.of(Permission.TRANSACTION_READ));
@@ -83,8 +86,8 @@ class ApiKeyControllerIntegrationTest extends AbstractAuthIntegrationTest {
                 .expectStatus()
                 .isOk()
                 .expectBody()
-                .jsonPath("$.keyPrefix").value(prefix -> prefix.startsWith("bk_"))
-                .jsonPath("$.name").value(name -> name != null);
+                .jsonPath("$.keyPrefix").value(startsWith("bk_"))
+                .jsonPath("$.name").value(notNullValue());
     }
 
     private String extractField(byte[] json, String field) throws Exception {
