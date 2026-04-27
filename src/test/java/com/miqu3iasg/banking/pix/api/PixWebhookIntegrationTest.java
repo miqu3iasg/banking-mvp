@@ -97,12 +97,15 @@ class PixWebhookIntegrationTest extends AbstractIntegrationTestSupport {
 
         PixCharge updatedCharge = chargeRepository.findByTxid(txid).orElseThrow();
         assertThat(updatedCharge.getStatus()).isEqualTo(PixChargeStatus.PAID);
+        assertThat(updatedCharge.getPaidAt()).isNotNull();
 
         Account updatedAccount = accountRepository.findById(accountId).get();
         assertThat(updatedAccount.getBalance().amount())
                 .isEqualByComparingTo(balanceBefore.add(new BigDecimal("100.00")));
 
-        assertThat(transactionRepository.findByAccountId(accountId)).hasSize(1);
+        var transactions = transactionRepository.findByAccountId(accountId);
+        assertThat(transactions).hasSize(1);
+        assertThat(transactions.get(0).getAmount().amount()).isEqualByComparingTo(new BigDecimal("100.00"));
     }
 
     @Test
