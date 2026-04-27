@@ -38,6 +38,21 @@ public class ApiKeyController {
 
     private final ApiKeyService apiKeyService;
 
+    // Helper method to safely extract User from SecurityContext
+    private User getCurrentUser() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || authentication.getPrincipal() == null) {
+            throw new IllegalStateException("No authentication found in context");
+        }
+
+        Object principal = authentication.getPrincipal();
+        if (!(principal instanceof User)) {
+            throw new IllegalStateException("Expected User principal, but found: " + principal.getClass().getSimpleName());
+        }
+
+        return (User) principal;
+    }
+
     @PostMapping
     @PreAuthorize("hasRole('USER')")
     @Operation(summary = "Create a new API key", description = "Creates a new API key for the authenticated user. The raw key is shown only once at creation time.")
@@ -48,8 +63,7 @@ public class ApiKeyController {
     })
     @SecurityRequirement(name = "bearerAuth")
     public ResponseEntity<CreateApiKeyResponse> createApiKey(@RequestBody CreateApiKeyRequest request) {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        User user = (User) authentication.getPrincipal();
+        User user = getCurrentUser();
 
         ApiKeyCreationResult result = apiKeyService.createApiKey(
                 user.getId(),
@@ -80,13 +94,13 @@ public class ApiKeyController {
     @PreAuthorize("hasRole('USER')")
     @Operation(summary = "List API keys", description = "Lists all API keys for the authenticated user.")
     @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "Successfully retrieved list of API keys", content = @Content(schema = @Schema(implementation = ApiKeySummaryResponse.class))),
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved list of API keys",
+                   content = @Content(schema = @Schema(implementation = ApiKeySummaryResponse.class))),
         @ApiResponse(responseCode = "401", description = "Unauthorized")
     })
     @SecurityRequirement(name = "bearerAuth")
     public ResponseEntity<List<ApiKeySummaryResponse>> listApiKeys() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        User user = (User) authentication.getPrincipal();
+        User user = getCurrentUser();
 
         List<ApiKey> keys = apiKeyService.listApiKeys(user.getId());
         List<ApiKeySummaryResponse> response = keys.stream()
@@ -100,14 +114,14 @@ public class ApiKeyController {
     @PreAuthorize("hasRole('USER')")
     @Operation(summary = "Get API key details", description = "Retrieves details of a specific API key.")
     @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "Successfully retrieved API key details", content = @Content(schema = @Schema(implementation = ApiKeySummaryResponse.class))),
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved API key details",
+                   content = @Content(schema = @Schema(implementation = ApiKeySummaryResponse.class))),
         @ApiResponse(responseCode = "401", description = "Unauthorized"),
         @ApiResponse(responseCode = "404", description = "API key not found")
     })
     @SecurityRequirement(name = "bearerAuth")
     public ResponseEntity<ApiKeySummaryResponse> getApiKey(@PathVariable UUID id) {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        User user = (User) authentication.getPrincipal();
+        User user = getCurrentUser();
 
         ApiKey key = apiKeyService.listApiKeys(user.getId()).stream()
                 .filter(k -> k.getId().equals(id))
@@ -129,8 +143,7 @@ public class ApiKeyController {
     public ResponseEntity<Void> revokeApiKey(
             @Parameter(description = "API key ID") @PathVariable UUID id,
             @Parameter(description = "Reason for revocation") @RequestParam String reason) {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        User user = (User) authentication.getPrincipal();
+        User user = getCurrentUser();
 
         ApiKey key = apiKeyService.listApiKeys(user.getId()).stream()
                 .filter(k -> k.getId().equals(id))
@@ -146,7 +159,8 @@ public class ApiKeyController {
     @PreAuthorize("hasRole('USER')")
     @Operation(summary = "Rotate an API key", description = "Rotates an API key, generating a new key and optionally maintaining the old key for a grace period.")
     @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "API key successfully rotated", content = @Content(schema = @Schema(implementation = RotateApiKeyResponse.class))),
+        @ApiResponse(responseCode = "200", description = "API key successfully rotated",
+                    content = @Content(schema = @Schema(implementation = RotateApiKeyResponse.class))),
         @ApiResponse(responseCode = "401", description = "Unauthorized"),
         @ApiResponse(responseCode = "404", description = "API key not found")
     })
@@ -154,9 +168,7 @@ public class ApiKeyController {
     public ResponseEntity<RotateApiKeyResponse> rotateApiKey(
             @Parameter(description = "API key ID") @PathVariable UUID id,
             @Parameter(description = "Grace period in days for the old key") @RequestParam int gracePeriodDays) {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        User user = (User) authentication.getPrincipal();
-
+        User user = getCurrentUser();
         ApiKey key = apiKeyService.listApiKeys(user.getId()).stream()
                 .filter(k -> k.getId().equals(id))
                 .findFirst()

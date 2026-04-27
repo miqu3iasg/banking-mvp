@@ -44,6 +44,11 @@ public class AuthTestDataFactory {
     @Autowired
     private ApiKeyRepository apiKeyRepository;
 
+    // Add this method to the class
+    public ApiKeyRepository getApiKeyRepository() {
+        return apiKeyRepository;
+    }
+
     @Autowired
     private PasswordService passwordService;
 

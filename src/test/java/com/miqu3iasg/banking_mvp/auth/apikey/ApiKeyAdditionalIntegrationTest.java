@@ -10,22 +10,23 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.EntityExchangeResult;
 
+import java.time.Instant;
 import java.util.EnumSet;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class ApiKeyControllerIntegrationTest extends AbstractAuthIntegrationTest {
+class ApiKeyAdditionalIntegrationTest extends AbstractAuthIntegrationTest {
 
     @Test
-    void createApiKey_returnsRawKeyOnce() throws Exception {
+    void apiKeyWithScope_canAccessScopedEndpoint() throws Exception {
         User user = factory.createUser(AccountStatus.ACTIVE);
         String token = jwtHelper.generateValidToken(user.getId(), user.getEmail(), Set.of("ROLE_USER"));
 
         String requestBody = """
                 {
-                    "name": "Test API Key",
-                    "description": "Integration test key",
+                    "name": "Scoped API Key",
+                    "description": "API key with specific scopes",
                     "scopes": ["TRANSACTION_READ"]
                 }
                 """;
@@ -41,50 +42,55 @@ class ApiKeyControllerIntegrationTest extends AbstractAuthIntegrationTest {
                 .expectBody()
                 .returnResult();
 
-        String rawKey = extractField(result.getResponseBody(), "rawKey");
-        String keyPrefix = extractField(result.getResponseBody(), "keyPrefix");
+        String keyId = extractField(result.getResponseBody(), "id");
 
-        assertThat(rawKey).startsWith("bk_");
-        assertThat(keyPrefix).startsWith("bk_");
-        assertThat(rawKey).isNotEqualTo(keyPrefix);
+        // Test that we can retrieve the key details
+        webTestClient.get()
+                .uri("/api/v1/auth/api-keys/" + keyId)
+                .header("Authorization", "Bearer " + token)
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody()
+                .jsonPath("$.keyPrefix").value(prefix -> assertThat(prefix).asString().startsWith("bk_"));
     }
 
     @Test
-    void listApiKeys_returnsUserKeys() throws Exception {
+    void apiKeyRotationWithGracePeriod() throws Exception {
         User user = factory.createUser(AccountStatus.ACTIVE);
         String token = jwtHelper.generateValidToken(user.getId(), user.getEmail(), Set.of("ROLE_USER"));
-        String rawKey = factory.createApiKey(EnumSet.of(Permission.TRANSACTION_READ));
-
-        webTestClient.get()
-                .uri("/api/v1/auth/api-keys")
-                .header("Authorization", "Bearer " + token)
-                .exchange()
-                .expectStatus()
-                .isOk()
-                .expectBody()
-                .jsonPath("$[0].keyPrefix").value(prefix -> prefix.startsWith("bk_"));
-    }
-
-    @Test
-    void getApiKey_returnsDetails() throws Exception {
-        User user = factory.createUser(AccountStatus.ACTIVE);
-        String token = jwtHelper.generateValidToken(user.getId(), user.getId().toString(), Set.of("ROLE_USER"));
 
         // Create an API key first
-        String rawKey = factory.createApiKey(EnumSet.of(Permission.TRANSACTION_READ));
+        String createRequest = """
+                {
+                    "name": "Original Key",
+                    "description": "Key to rotate"
+                }
+                """;
 
-        // Get the API key ID through the factory
-        com.miqu3iasg.banking.auth.domain.ApiKey apiKey = factory.getApiKeyRepository().findByOwnerId(user.getId()).get(0);
+        EntityExchangeResult<byte[]> createResult = webTestClient.post()
+                .uri("/api/v1/auth/api-keys")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(createRequest)
+                .exchange()
+                .expectStatus()
+                .isCreated()
+                .expectBody()
+                .returnResult();
 
-        webTestClient.get()
-                .uri("/api/v1/auth/api-keys/" + apiKey.getId())
+        String keyId = extractField(createResult.getResponseBody(), "id");
+
+        // Rotate the key with 7-day grace period
+        webTestClient.post()
+                .uri("/api/v1/auth/api-keys/" + keyId + "/rotate?gracePeriodDays=7")
                 .header("Authorization", "Bearer " + token)
                 .exchange()
                 .expectStatus()
                 .isOk()
                 .expectBody()
-                .jsonPath("$.keyPrefix").value(prefix -> prefix.startsWith("bk_"))
-                .jsonPath("$.name").value(name -> name != null);
+                .jsonPath("$.rawKey").exists()
+                .jsonPath("$.keyPrefix").exists();
     }
 
     private String extractField(byte[] json, String field) throws Exception {
