@@ -4,7 +4,7 @@ import com.miqu3iasg.banking.shared.exception.FaultCode;
 import org.springframework.http.HttpStatus;
 
 public enum BoletoFaultCode implements FaultCode {
-	// TODO: make the fault codes in the same standard
+	// Standardized fault codes following same pattern as PIX
 	BOLETO_NOT_FOUND("BANKING_BOLETO_001", "Boleto not found", HttpStatus.NOT_FOUND.value()),
 	BOLETO_GATEWAY_ERROR("BANKING_BOLETO_002", "Error communicating with boleto provider", HttpStatus.BAD_GATEWAY.value()),
 	INVALID_BOLETO_STATE_TRANSITION("BANKING_BOLETO_003", "Invalid boleto status transition", HttpStatus.CONFLICT.value()),
@@ -34,5 +34,10 @@ public enum BoletoFaultCode implements FaultCode {
 	@Override
 	public int getHttpStatus () {
 		return httpStatus;
+	}
+
+	@Override
+	public String toString () {
+		return String.format("%s(%s)", name(), code);
 	}
 }

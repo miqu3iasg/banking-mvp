@@ -1,5 +1,6 @@
 package com.miqu3iasg.banking.shared.outbox;
 
+import com.miqu3iasg.banking.shared.scheduler.Scheduler;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -21,7 +22,7 @@ import java.util.stream.Collectors;
 	havingValue = "true",
 	matchIfMissing = true
 )
-public class OutboxProcessor {
+public class OutboxProcessor implements Scheduler {
 	private static final int BATCH_SIZE = 50;
 	private static final Duration BASE_BACKOFF = Duration.ofSeconds(10);
 
@@ -45,9 +46,24 @@ public class OutboxProcessor {
 		);
 	}
 
+	@Override
+	public String getName() {
+		return "OutboxProcessor";
+	}
+
+	@Override
+	public String getCronExpression() {
+		return "${outbox.processor.interval-ms:5000}";
+	}
+
 	@Transactional
 	@Scheduled(fixedDelayString = "${outbox.processor.interval-ms:5000}")
 	public void poolAndProcess () {
+		execute();
+	}
+
+	@Override
+	public void execute() {
 		Instant retryBefore = Instant.now();
 
 		List<OutboxEvent> batch = outboxRepository.findPendingForProcessing(retryBefore, BATCH_SIZE);

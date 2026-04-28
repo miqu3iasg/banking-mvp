@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.miqu3iasg.banking.shared.exception.IdempotencyCacheCorruptException;
 import com.miqu3iasg.banking.shared.exception.PurgeInterruptedException;
+import com.miqu3iasg.banking.shared.scheduler.Scheduler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -20,7 +21,7 @@ import java.util.Optional;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class IdempotencyService {
+public class IdempotencyService implements Scheduler {
 
 	private static final int PURGE_BATCH_SIZE = 1_000;
 	private static final int PURGE_MAX_BATCHES = 500;
@@ -159,6 +160,21 @@ public class IdempotencyService {
 
 	@Scheduled(cron = "0 0 0 * * *")
 	public void purgeExpiredKeys () {
+		execute();
+	}
+
+	@Override
+	public String getName() {
+		return "IdempotencyService";
+	}
+
+	@Override
+	public String getCronExpression() {
+		return "0 0 0 * * *";
+	}
+
+	@Override
+	public void execute() {
 		log.info("Idempotency purge job starting");
 
 		Instant start = Instant.now(clock);
