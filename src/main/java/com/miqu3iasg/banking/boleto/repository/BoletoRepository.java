@@ -2,6 +2,8 @@ package com.miqu3iasg.banking.boleto.repository;
 
 import com.miqu3iasg.banking.boleto.domain.Boleto;
 import com.miqu3iasg.banking.boleto.domain.BoletoStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
@@ -14,15 +16,21 @@ import java.util.UUID;
 @Repository
 public interface BoletoRepository extends JpaRepository<Boleto, UUID> {
 
-	Optional<Boleto> findByProviderChargeId (long providerChargeId);
+    Optional<Boleto> findByProviderChargeId(long providerChargeId);
 
-	List<Boleto> findAllByStatusAndDueDateBefore (BoletoStatus status, LocalDate date);
+    List<Boleto> findAllByStatusAndDueDateBefore(BoletoStatus status, LocalDate date);
 
-	/**
-	 * Efficient expiration query using partial index on (due_date) WHERE status = 'PENDING'.
-	 * Equivalent to {@code findAllByStatusAndDueDateBefore} but relies on the filtered index
-	 * defined in the Flyway migration for performance at scale.
-	 */
-	@Query("SELECT b FROM Boleto b WHERE b.status = 'PENDING' AND b.dueDate < :today")
-	List<Boleto> findAllPendingOverdue (LocalDate today);
+    /**
+     * Efficient expiration query using partial index on (due_date) WHERE status = 'PENDING'.
+     * Equivalent to {@code findAllByStatusAndDueDateBefore} but relies on the filtered index
+     * defined in the Flyway migration for performance at scale.
+     */
+    @Query("SELECT b FROM Boleto b WHERE b.status = 'PENDING' AND b.dueDate < :today")
+    List<Boleto> findAllPendingOverdue(LocalDate today);
+
+    /**
+     * Paginated query for pending overdue boletos to avoid memory issues.
+     */
+    @Query("SELECT b FROM Boleto b WHERE b.status = 'PENDING' AND b.dueDate < :today")
+    Page<Boleto> findAllPendingOverdue(LocalDate today, Pageable pageable);
 }
