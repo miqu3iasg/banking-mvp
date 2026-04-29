@@ -5,7 +5,6 @@ import com.miqu3iasg.banking.boleto.metrics.BoletoMetrics;
 import com.miqu3iasg.banking.boleto.repository.BoletoRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -35,7 +34,6 @@ public class BoletoExpirationScheduler {
 
     @Transactional
     @Scheduled(cron = "0 0 2 * * *", zone = "UTC")
-    @SchedulerLock(name = "boletoExpirationJob", lockAtMostFor = "PT10M", lockAtLeastFor = "PT5S")
     public void expireOverdueBoletos() {
         var today = LocalDate.now();
         log.info("Boleto expiration job started for date={}", today);

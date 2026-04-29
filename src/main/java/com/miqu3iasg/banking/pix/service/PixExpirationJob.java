@@ -5,7 +5,6 @@ import com.miqu3iasg.banking.pix.metrics.PixMetrics;
 import com.miqu3iasg.banking.pix.repository.PixChargeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -34,7 +33,6 @@ public class PixExpirationJob {
 
     @Transactional
     @Scheduled(cron = "0 0 2 * * *", zone = "UTC")
-    @SchedulerLock(name = "pixExpirationJob", lockAtMostFor = "PT10M", lockAtLeastFor = "PT5S")
     public void expireCharges() {
         log.info("Starting PIX charge expiration job");
 
