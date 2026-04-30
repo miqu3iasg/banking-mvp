@@ -3,7 +3,6 @@ package com.miqu3iasg.banking.pix.scheduler;
 import com.miqu3iasg.banking.pix.domain.PixCharge;
 import com.miqu3iasg.banking.pix.domain.PixChargeStatus;
 import com.miqu3iasg.banking.pix.repository.PixChargeRepository;
-import com.miqu3iasg.banking.pix.service.PixExpirationScheduler;
 import com.miqu3iasg.banking_mvp.shared.support.AbstractIntegrationTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -75,7 +74,7 @@ class PixExpirationSchedulerIT extends AbstractIntegrationTestSupport {
     }
 
     @Test
-    void expireCharges_transitionsExpiredChargesToExpired() {
+    void expireCharges_whenChargeIsExpired_transitionsToExpiredStatus() {
         UUID expiredChargeId = insertExpiredCharge();
 
         scheduler.expireCharges();
@@ -85,7 +84,7 @@ class PixExpirationSchedulerIT extends AbstractIntegrationTestSupport {
     }
 
     @Test
-    void expireCharges_keepsNonExpiredChargesPending() {
+    void expireCharges_whenChargeIsNotExpired_remainsPending() {
         UUID validChargeId = insertValidPendingCharge();
 
         scheduler.expireCharges();
@@ -95,7 +94,7 @@ class PixExpirationSchedulerIT extends AbstractIntegrationTestSupport {
     }
 
     @Test
-    void expireCharges_handlesAlreadyExpiredChargeGracefully() {
+    void expireCharges_whenRunTwice_secondRunIsNoOp() {
         UUID expiredChargeId = insertExpiredCharge();
 
         scheduler.expireCharges();
@@ -103,5 +102,9 @@ class PixExpirationSchedulerIT extends AbstractIntegrationTestSupport {
 
         PixCharge updated = chargeRepository.findById(expiredChargeId).orElseThrow();
         assertThat(updated.getStatus()).isEqualTo(PixChargeStatus.EXPIRED);
+
+        Long expiredCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM pix_charges WHERE status = 'EXPIRED'", Long.class);
+        assertThat(expiredCount).isEqualTo(1);
     }
 }

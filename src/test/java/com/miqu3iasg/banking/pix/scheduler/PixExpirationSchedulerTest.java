@@ -1,4 +1,4 @@
-package com.miqu3iasg.banking.pix.service;
+package com.miqu3iasg.banking.pix.scheduler;
 
 import com.miqu3iasg.banking.pix.domain.PixCharge;
 import com.miqu3iasg.banking.pix.metrics.PixMetrics;
@@ -15,7 +15,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -23,14 +22,16 @@ import static org.mockito.Mockito.*;
 class PixExpirationSchedulerTest {
 
     private PixChargeRepository chargeRepository;
+    private PixChargeExpirer chargeExpirer;
     private PixMetrics pixMetrics;
     private PixExpirationScheduler scheduler;
 
     @BeforeEach
     void setUp() {
         chargeRepository = mock(PixChargeRepository.class);
+        chargeExpirer = mock(PixChargeExpirer.class);
         pixMetrics = mock(PixMetrics.class);
-        scheduler = new PixExpirationScheduler(chargeRepository, pixMetrics);
+        scheduler = new PixExpirationScheduler(chargeRepository, chargeExpirer, pixMetrics);
     }
 
     private PixCharge createExpiredCharge(UUID id) {
@@ -42,7 +43,7 @@ class PixExpirationSchedulerTest {
     }
 
     @Test
-    void expireCharges_expiresPendingChargesPastExpiresAt() {
+    void expireCharges_whenExpiredPendingChargesExist_delegatesToExpirer() {
         PixCharge expiredCharge = createExpiredCharge(UUID.randomUUID());
         Page<PixCharge> page = new PageImpl<>(List.of(expiredCharge));
         when(chargeRepository.findExpiredPendingCharges(any(Instant.class), any(Pageable.class)))
@@ -51,24 +52,11 @@ class PixExpirationSchedulerTest {
 
         scheduler.expireCharges();
 
-        verify(expiredCharge).expire();
+        verify(chargeExpirer).expireAndSave(expiredCharge);
     }
 
     @Test
-    void expireCharges_savesEachExpiredChargeIndividually() {
-        PixCharge expiredCharge = createExpiredCharge(UUID.randomUUID());
-        Page<PixCharge> page = new PageImpl<>(List.of(expiredCharge));
-        when(chargeRepository.findExpiredPendingCharges(any(Instant.class), any(Pageable.class)))
-                .thenReturn(page)
-                .thenReturn(new PageImpl<>(List.of()));
-
-        scheduler.expireCharges();
-
-        verify(chargeRepository).save(expiredCharge);
-    }
-
-    @Test
-    void expireCharges_recordsMetrics() {
+    void expireCharges_whenChargesExpired_recordsMetricsForSuccessfulExpirations() {
         PixCharge expiredCharge = createExpiredCharge(UUID.randomUUID());
         Page<PixCharge> page = new PageImpl<>(List.of(expiredCharge));
         when(chargeRepository.findExpiredPendingCharges(any(Instant.class), any(Pageable.class)))
@@ -81,25 +69,24 @@ class PixExpirationSchedulerTest {
     }
 
     @Test
-    void expireCharges_continuesProcessing_whenSingleChargeFails() {
+    void expireCharges_whenExpirerFails_continuesProcessingAndCountsOnlySuccesses() {
         PixCharge failingCharge = createExpiredCharge(UUID.randomUUID());
-        doThrow(new RuntimeException("DB constraint violation")).when(failingCharge).expire();
-
         PixCharge validCharge = createExpiredCharge(UUID.randomUUID());
 
         Page<PixCharge> page = new PageImpl<>(List.of(failingCharge, validCharge));
         when(chargeRepository.findExpiredPendingCharges(any(Instant.class), any(Pageable.class)))
                 .thenReturn(page)
                 .thenReturn(new PageImpl<>(List.of()));
+        doThrow(new RuntimeException("DB constraint violation")).when(chargeExpirer).expireAndSave(failingCharge);
 
         assertThatCode(() -> scheduler.expireCharges()).doesNotThrowAnyException();
 
-        verify(validCharge).expire();
-        verify(pixMetrics).recordChargesExpired(2);
+        verify(chargeExpirer).expireAndSave(validCharge);
+        verify(pixMetrics).recordChargesExpired(1);
     }
 
     @Test
-    void expireCharges_requestsNextPage_whenMoreResultsExist() {
+    void expireCharges_whenMoreResultsExist_requestsNextPage() {
         PixCharge charge1 = createExpiredCharge(UUID.randomUUID());
         PixCharge charge2 = createExpiredCharge(UUID.randomUUID());
 
@@ -117,7 +104,7 @@ class PixExpirationSchedulerTest {
     }
 
     @Test
-    void expireCharges_handlesEmptyResult() {
+    void expireCharges_whenNoExpiredCharges_recordsZeroMetrics() {
         when(chargeRepository.findExpiredPendingCharges(any(Instant.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 

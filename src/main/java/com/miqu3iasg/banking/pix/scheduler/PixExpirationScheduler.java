@@ -1,4 +1,4 @@
-package com.miqu3iasg.banking.pix.service;
+package com.miqu3iasg.banking.pix.scheduler;
 
 import com.miqu3iasg.banking.pix.domain.PixCharge;
 import com.miqu3iasg.banking.pix.metrics.PixMetrics;
@@ -12,7 +12,6 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 
@@ -21,8 +20,9 @@ import java.time.Instant;
  * <p>
  * Runs once per day at 02:00 UTC to process charges whose expiresAt
  * timestamp has passed without payment confirmation. Processes in batches
- * to avoid memory issues. Each charge is expired and saved individually
- * so a failure on one charge does not roll back the entire batch.
+ * to avoid memory issues. Each charge is expired and saved in its own
+ * transaction (via {@link PixChargeExpirer}) so a failure on one charge
+ * does not roll back the others.
  */
 @Slf4j
 @Component
@@ -31,19 +31,20 @@ import java.time.Instant;
 public class PixExpirationScheduler {
 
     private final PixChargeRepository chargeRepository;
+    private final PixChargeExpirer chargeExpirer;
     private final PixMetrics pixMetrics;
 
     private static final int PAGE_SIZE = 1000;
 
-    @Transactional
     @Scheduled(cron = "0 0 2 * * *", zone = "UTC")
-    @SchedulerLock(name = "pixExpirationScheduler", lockAtMostFor = "PT10M", lockAtLeastFor = "PT1M")
+    @SchedulerLock(name = "pixExpirationScheduler", lockAtMostFor = "PT30M", lockAtLeastFor = "PT1M")
     public void expireCharges() {
         var now = Instant.now();
-        log.info("PIX charge expiration job started for now={}", now);
+        log.info("PIX charge expiration scheduler started for now={}", now);
 
         int page = 0;
         int totalExpired = 0;
+        int totalFailed = 0;
         Page<PixCharge> expiredPage;
         Pageable pageable = PageRequest.of(page, PAGE_SIZE);
 
@@ -52,26 +53,25 @@ public class PixExpirationScheduler {
 
             for (PixCharge charge : expiredPage.getContent()) {
                 try {
-                    charge.expire();
-                    chargeRepository.save(charge);
+                    chargeExpirer.expireAndSave(charge);
+                    totalExpired++;
                     log.info("Expired PIX charge: id={} accountId={} amount={}",
                             charge.getId(),
                             charge.getAccountId(),
                             charge.getAmount());
                 } catch (Exception e) {
+                    totalFailed++;
                     log.error("Failed to expire PIX charge id={}: {}",
                             charge.getId(), e.getMessage(), e);
                 }
             }
 
-            int expired = expiredPage.getNumberOfElements();
-            totalExpired += expired;
             page++;
             pageable = PageRequest.of(page, PAGE_SIZE);
 
         } while (expiredPage.hasNext());
 
         pixMetrics.recordChargesExpired(totalExpired);
-        log.info("PIX charge expiration job completed: expired={} charges", totalExpired);
+        log.info("PIX charge expiration scheduler completed: expired={} failed={} charges", totalExpired, totalFailed);
     }
 }
