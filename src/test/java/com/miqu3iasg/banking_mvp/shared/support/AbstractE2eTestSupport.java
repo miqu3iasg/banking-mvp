@@ -14,7 +14,7 @@ import com.miqu3iasg.banking.pix.gateway.EfiPixAuthGateway;
 import com.miqu3iasg.banking.pix.gateway.EfiPixGateway;
 import com.miqu3iasg.banking.pix.repository.PixChargeRepository;
 import com.miqu3iasg.banking.pix.repository.PixKeyRepository;
-import com.miqu3iasg.banking.pix.service.PixExpirationJob;
+import com.miqu3iasg.banking.pix.service.PixExpirationScheduler;
 import com.miqu3iasg.banking_mvp.efi.pix.gateway.BacenSpec;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -93,7 +93,7 @@ public abstract class AbstractE2eTestSupport {
 	@Autowired
 	protected PixChargeRepository chargeRepository;
 	@Autowired
-	protected PixExpirationJob expirationJob;
+	protected PixExpirationScheduler expirationJob;
 	@Autowired
 	protected TransactionTemplate txTemplate;
 	@Autowired
