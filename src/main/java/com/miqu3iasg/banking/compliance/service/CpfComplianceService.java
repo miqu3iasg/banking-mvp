@@ -2,6 +2,7 @@ package com.miqu3iasg.banking.compliance.service;
 
 import com.miqu3iasg.banking.compliance.api.dto.CpfResponse;
 import com.miqu3iasg.banking.compliance.document.DocumentValidator;
+import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -33,6 +34,7 @@ public class CpfComplianceService {
 
 	private final DocumentValidator documentValidator;
 
+	@Observed(name = "compliance.cpf-validate", contextualName = "CpfComplianceService.validate")
 	public CpfResponse validate (String cpf) {
 		documentValidator.validate(cpf);
 

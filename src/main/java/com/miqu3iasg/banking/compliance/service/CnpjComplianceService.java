@@ -4,6 +4,7 @@ import com.miqu3iasg.banking.compliance.api.dto.CnpjResponse;
 import com.miqu3iasg.banking.compliance.document.DocumentValidator;
 import com.miqu3iasg.banking.compliance.gateway.ComplianceGateway;
 import com.miqu3iasg.banking.compliance.mapper.CnpjResponseMapper;
+import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
@@ -21,6 +22,7 @@ public class CnpjComplianceService {
 	private final ComplianceGateway complianceGateway;
 	private final CnpjResponseMapper mapper;
 
+	@Observed(name = "compliance.cnpj-query", contextualName = "CnpjComplianceService.query")
 	public CnpjResponse query (String cnpj) {
 		documentValidator.validate(cnpj);
 

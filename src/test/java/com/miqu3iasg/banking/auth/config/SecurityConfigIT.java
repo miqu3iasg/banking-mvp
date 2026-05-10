@@ -2,6 +2,7 @@ package com.miqu3iasg.banking.auth.config;
 
 import com.miqu3iasg.banking.auth.domain.AccountStatus;
 import com.miqu3iasg.banking.auth.security.JwtService;
+import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -16,6 +17,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -189,6 +191,32 @@ class SecurityConfigIT {
     @Nested
     @DisplayName("JWT token validation")
     class JwtValidation {
+
+        @Test
+        void debugTokenGenerationAndParsing() {
+            UUID userId = UUID.randomUUID();
+            String email = "test@example.com";
+            Set<String> roles = Set.of("USER");
+            Map<String, Object> additionalClaims = Map.of();
+            AccountStatus status = AccountStatus.ACTIVE;
+
+            String token = jwtService.generateAccessToken(userId, email, roles, additionalClaims, status);
+            System.out.println("Generated token: " + token);
+
+            // Try to parse it with the same jwtService
+            try {
+                Claims claims = jwtService.parseToken(token);
+                System.out.println("Parsed claims: " + claims);
+                System.out.println("Token is valid according to jwtService.parseToken");
+            } catch (Exception e) {
+                System.out.println("Failed to parse token with jwtService.parseToken: " + e.getMessage());
+                e.printStackTrace();
+            }
+
+            // Also try to validate
+            boolean valid = jwtService.validateToken(token);
+            System.out.println("jwtService.validateToken(token) = " + valid);
+        }
 
         @Test
         void invalidJwt_isRejected() {

@@ -7,7 +7,9 @@ import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.scheduling.annotation.AsyncConfigurer;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Duration;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionHandler;
 
@@ -16,6 +18,19 @@ import java.util.concurrent.RejectedExecutionHandler;
 @EnableJpaAuditing
 @EnableConfigurationProperties(AuthProperties.class)
 public class AuthConfig implements AsyncConfigurer {
+
+    private final WebClient.Builder webClientBuilder;
+
+    public AuthConfig(WebClient.Builder webClientBuilder) {
+        this.webClientBuilder = webClientBuilder;
+    }
+
+    @Bean("hibpWebClient")
+    public WebClient hibpWebClient() {
+        return webClientBuilder.clone()
+                .baseUrl("https://api.pwnedpasswords.com")
+                .build();
+    }
 
     @Bean(name = "authTaskExecutor")
     public Executor authTaskExecutor() {
