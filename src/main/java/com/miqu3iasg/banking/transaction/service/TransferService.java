@@ -10,6 +10,7 @@ import com.miqu3iasg.banking.transaction.api.dto.TransferRequest;
 import com.miqu3iasg.banking.transaction.domain.Transaction;
 import com.miqu3iasg.banking.transaction.domain.TransactionType;
 import com.miqu3iasg.banking.transaction.repository.TransactionRepository;
+import io.micrometer.observation.annotation.Observed;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.retry.support.RetryTemplate;
@@ -50,6 +51,7 @@ public class TransferService {
 		this.transactionTemplate = transactionTemplate;
 	}
 
+	@Observed(name = "transaction.transfer", contextualName = "TransferService.transfer")
 	public TransactionResponse transfer (String idempotencyKey, TransferRequest request) {
 		return metrics.timeTransfer(request.currency(), () ->
 			idempotentOperationExecutor.execute(

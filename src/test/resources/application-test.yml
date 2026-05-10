@@ -1,0 +1,10 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:${POSTGRESQL_PORT:5432}/banking_test
+    username: test
+    password: test
+  redis:
+    host: localhost
+    port: ${REDIS_PORT:6379}
+
+# Enable Testcontainers profile if needed

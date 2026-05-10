@@ -10,6 +10,7 @@ import com.miqu3iasg.banking.transaction.api.dto.TransactionResponse;
 import com.miqu3iasg.banking.transaction.domain.Transaction;
 import com.miqu3iasg.banking.transaction.domain.TransactionType;
 import com.miqu3iasg.banking.transaction.repository.TransactionRepository;
+import io.micrometer.observation.annotation.Observed;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.retry.support.RetryTemplate;
@@ -47,6 +48,7 @@ public class DepositService {
 		this.retryTemplate = retryTemplate;
 	}
 
+	@Observed(name = "transaction.deposit", contextualName = "DepositService.deposit")
 	public TransactionResponse deposit (String idempotencyKey, DepositRequest request) {
 		return metrics.timeDeposit(request.currency(), () ->
 			idempotentOperationExecutor.execute(

@@ -24,6 +24,7 @@ import com.miqu3iasg.banking.transaction.repository.TransactionRepository;
 import com.miqu3iasg.banking.transaction.service.TransactionEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import io.micrometer.observation.annotation.Observed;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,6 +51,7 @@ public class PixService {
 	private final PixMetrics metrics;
 	private final EfiPixProperties efiPixProperties;
 
+	@Observed(name = "pix.create-charge", contextualName = "PixService.createCharge")
 	public PixChargeResponse createCharge (
 		UUID accountId,
 		CreatePixChargeRequest request,
@@ -112,6 +114,7 @@ public class PixService {
 	}
 
 	@Transactional(readOnly = true)
+	@Observed(name = "pix.get-charge", contextualName = "PixService.getCharge")
 	public PixChargeResponse getCharge (String txid, UUID accountId) {
 		return chargeRepository.findByTxid(txid)
 			.filter(c -> c.getAccountId().equals(accountId))
@@ -120,6 +123,7 @@ public class PixService {
 	}
 
 	@Transactional
+	@Observed(name = "pix.cancel-charge", contextualName = "PixService.cancelCharge")
 	public void cancelCharge (String txid, UUID accountId) {
 		var charge = chargeRepository.findByTxid(txid)
 			.filter(c -> c.getAccountId().equals(accountId))
@@ -136,6 +140,7 @@ public class PixService {
 	}
 
 	@Transactional
+	@Observed(name = "pix.process-webhook-payment", contextualName = "PixService.processWebhookPayment")
 	public void processWebhookPayment (String txid, Instant paidAt, String idempotencyKey) {
 		idempotentOperationExecutor.execute(
 			idempotencyKey,

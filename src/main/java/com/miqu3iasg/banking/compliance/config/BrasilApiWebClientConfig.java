@@ -14,17 +14,24 @@ import java.util.concurrent.TimeUnit;
 @Configuration
 @EnableConfigurationProperties(BrasilApiProperties.class)
 public class BrasilApiWebClientConfig {
-	@Bean
-	public WebClient brasilApiWebClient (BrasilApiProperties props) {
-		var httpClient = HttpClient.create()
-			.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, props.connectTimeoutSeconds() * 1000)
-			.doOnConnected(connection -> connection.addHandlerLast(
-				new ReadTimeoutHandler(props.readTimeoutSeconds(), TimeUnit.SECONDS)
-			));
 
-		return WebClient.builder()
-			.baseUrl(props.baseUrl())
-			.clientConnector(new ReactorClientHttpConnector(httpClient))
-			.build();
-	}
+    private final WebClient.Builder webClientBuilder;
+
+    public BrasilApiWebClientConfig(WebClient.Builder webClientBuilder) {
+        this.webClientBuilder = webClientBuilder;
+    }
+
+    @Bean
+    public WebClient brasilApiWebClient (BrasilApiProperties props) {
+        var httpClient = HttpClient.create()
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, props.connectTimeoutSeconds() * 1000)
+                .doOnConnected(connection -> connection.addHandlerLast(
+                        new ReadTimeoutHandler(props.readTimeoutSeconds(), TimeUnit.SECONDS)
+                ));
+
+        return webClientBuilder.clone()
+                .baseUrl(props.baseUrl())
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .build();
+    }
 }

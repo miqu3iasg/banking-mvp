@@ -110,7 +110,8 @@ public abstract class AbstractIntegrationTestSupport {
 		.withDatabaseName("banking_test")
 		.withUsername("test")
 		.withPassword("test")
-		.withReuse(true);
+		.withReuse(true)
+		.withStartupTimeout(java.time.Duration.ofMinutes(5));
 
 	@DynamicPropertySource
 	static void configureDataSource (DynamicPropertyRegistry registry) {

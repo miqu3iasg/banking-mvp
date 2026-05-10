@@ -10,6 +10,7 @@ import com.miqu3iasg.banking.transaction.api.dto.WithdrawalRequest;
 import com.miqu3iasg.banking.transaction.domain.Transaction;
 import com.miqu3iasg.banking.transaction.domain.TransactionType;
 import com.miqu3iasg.banking.transaction.repository.TransactionRepository;
+import io.micrometer.observation.annotation.Observed;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.retry.support.RetryTemplate;
@@ -47,6 +48,7 @@ public class WithdrawalService {
 		this.transactionTemplate = transactionTemplate;
 	}
 
+	@Observed(name = "transaction.withdraw", contextualName = "WithdrawalService.withdraw")
 	public TransactionResponse withdraw (String idempotencyKey, WithdrawalRequest request) {
 		return metrics.timeWithdrawal(request.currency(), () ->
 			idempotentOperationExecutor.execute(
