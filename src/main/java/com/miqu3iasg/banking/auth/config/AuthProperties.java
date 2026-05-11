@@ -192,7 +192,7 @@ public class AuthProperties {
 		@Max(10)
 		private int timeoutSeconds = 2;
 
-		private boolean failOpen = false;
+		private boolean failOpen = true;
 	}
 
 	@Getter

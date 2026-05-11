@@ -1,5 +1,6 @@
 package com.miqu3iasg.banking.auth.config;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -9,7 +10,6 @@ import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.reactive.function.client.WebClient;
 
-import java.time.Duration;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionHandler;
 
@@ -19,15 +19,16 @@ import java.util.concurrent.RejectedExecutionHandler;
 @EnableConfigurationProperties(AuthProperties.class)
 public class AuthConfig implements AsyncConfigurer {
 
-    private final WebClient.Builder webClientBuilder;
+    private final ObjectProvider<WebClient.Builder> webClientBuilderProvider;
 
-    public AuthConfig(WebClient.Builder webClientBuilder) {
-        this.webClientBuilder = webClientBuilder;
+    public AuthConfig(ObjectProvider<WebClient.Builder> webClientBuilderProvider) {
+        this.webClientBuilderProvider = webClientBuilderProvider;
     }
 
     @Bean("hibpWebClient")
     public WebClient hibpWebClient() {
-        return webClientBuilder.clone()
+        WebClient.Builder builder = webClientBuilderProvider.getIfAvailable(() -> WebClient.builder());
+        return builder.clone()
                 .baseUrl("https://api.pwnedpasswords.com")
                 .build();
     }

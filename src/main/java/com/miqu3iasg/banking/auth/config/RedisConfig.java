@@ -38,11 +38,22 @@ public class RedisConfig {
         }
 
         public void blacklistToken(String jti, Duration ttl) {
-            redisTemplate.opsForValue().set(BLACKLIST_PREFIX + jti, "1", ttl);
+            try {
+                redisTemplate.opsForValue().set(BLACKLIST_PREFIX + jti, "1", ttl);
+            } catch (Exception e) {
+                org.slf4j.LoggerFactory.getLogger(TokenBlacklistService.class)
+                        .warn("Redis unavailable during token blacklist write: {}", e.getMessage());
+            }
         }
 
         public boolean isBlacklisted(String jti) {
-            return Boolean.TRUE.equals(redisTemplate.hasKey(BLACKLIST_PREFIX + jti));
+            try {
+                return Boolean.TRUE.equals(redisTemplate.hasKey(BLACKLIST_PREFIX + jti));
+            } catch (Exception e) {
+                org.slf4j.LoggerFactory.getLogger(TokenBlacklistService.class)
+                        .warn("Redis unavailable during token blacklist check, allowing request: {}", e.getMessage());
+                return false;
+            }
         }
     }
 }
